@@ -9,9 +9,9 @@
 # Last modified on 2025-11-15 by Moreno Marzolla.
 
 for n in `seq 0 100`; do
-    OUT=`printf "out_%03d.txt" $n`
-    CEN=`printf "centroids_%03d.txt" $n`
-    IMG=`printf "img_%03d.png" $n`
+    OUT=`printf "temp/out_%03d.txt" $n`
+    CEN=`printf "temp/centroids_%03d.txt" $n`
+    IMG=`printf "img/img_%03d.png" $n`
     if [ -f "$OUT" ]; then
         {
             cat <<EOF
