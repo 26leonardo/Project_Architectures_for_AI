@@ -54,7 +54,7 @@
 #define _XOPEN_SOURCE 600
 #endif
 
-#include "hpc.h"
+#include "../utils/hpc.h"
 #include <stdio.h>
 #include <stdlib.h>
 #include <assert.h>
@@ -240,7 +240,7 @@ float update_centroids( void )
         vcopy( &centroids[IDX(j, 0)], &new_centroids[IDX(j, 0)] );
     }
 
-    return maxshift;
+    return maxshift; // is quadratic
 }
 
 /******************************************************************************
@@ -283,12 +283,13 @@ void read_input( FILE *f )
     while (1 == fscanf(f, "%f", &dummy))
         n_items++;
 
+    n_points = n_items / n_dims; // RESOLVED BUG: This has to be before the assertion below
+
     assert(n_points % n_dims == 0); /* If this assertion fails, then
                                        there is some line of the input
                                        file that has != n_dims
                                        items. */
 
-    n_points = n_items / n_dims;
 
     data = (float*)safe_malloc(n_points * n_dims * sizeof(*data));
 
@@ -316,7 +317,7 @@ void save_centroids( int iter )
 {
     char buf[1024];
 
-    snprintf(buf, sizeof(buf), "centroids_%03u.txt", (unsigned)iter);
+    snprintf(buf, sizeof(buf), "temp/centroids_%03u.txt", (unsigned)iter);
     FILE *f = fopen(buf, "w"); assert(f != NULL);
     if (f == NULL) {
         fprintf(stderr, "FATAL: can not open file \"%s\" for writing\n", buf);
@@ -344,7 +345,7 @@ void save_clusters( int iter )
 {
     char buf[1024];
 
-    snprintf(buf, sizeof(buf), "out_%03u.txt", (unsigned)iter);
+    snprintf(buf, sizeof(buf), "temp/out_%03u.txt", (unsigned)iter);
     FILE *f = fopen(buf, "w");
     if (f == NULL) {
         fprintf(stderr, "FATAL: can not open file \"%s\" for writing\n", buf);
@@ -391,7 +392,7 @@ int main( int argc, char *argv[] )
 {
     FILE *inputf, *outputf;
     const int MAXITER = 100;
-    const float TOL = 1e-5;
+    const float TOL = 1e-5; // is quadratic, so we need a small tolerance
 
     if (argc != 4) {
         fprintf(stderr, "Usage: %s K input_file output_file\n", argv[0]);
@@ -435,10 +436,12 @@ int main( int argc, char *argv[] )
     init_centroids();
 
     printf("Main loop starts\n\n");
+    
 
     float shift;
     int iter = 0;
     const double tstart = hpc_gettime();
+#pragma omp parallel
     do {
         classify();
         /* The following lines are useful only if you want to generate
@@ -465,6 +468,7 @@ int main( int argc, char *argv[] )
 
     free(data);
     free(centroids);
+    free(new_centroids); // Was missing in the original code
     free(cluster_of);
     free(counts);
 
