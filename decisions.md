@@ -31,7 +31,8 @@ The update step accumulates each point's coordinates into `new_centroids[cluster
 
 **Solution:** each thread allocates a private copy of `counts` (`local_counts[K]`) and `new_centroids` (`local_nc[K*D]`). After the `omp for` loop, only K and K*D atomic additions are needed per thread — this is O(P*K) rather than O(N*K), which is negligible since K << N.
 
-**Why not `reduction` clause?** OpenMP 4.5 supports user-defined reductions, but array reductions on dynamically-sized arrays require a manual reduction function. The private-copy approach is simpler, compiler-portable, and equally efficient.
+**Why not `reduction` clause?** OpenMP 4.5 supports user-defined reductions, but array reductions on dynamically-sized arrays require a manual reduction function. The private-copy approach is simpler, compiler-portable, and equally efficient, but **WE CAN ALSO TRY THIS.**.   
+
 
 ### 2.2 Parallel region structure: one region per function
 
@@ -56,7 +57,7 @@ Rather than reusing the single `#pragma omp parallel` block from the original st
 The dominant cost is the classify step: O(N*K*D) work distributed over N independent units. One thread per point maximises parallelism along the dominant axis.
 
 **Alternative considered: one thread per (point × dimension)**  
-This would give N*D threads. However, it requires a reduction over D dimensions to produce the per-(point,cluster) distance, which needs shared memory and `__syncthreads()`. When D is small (the assumed case), the overhead of the extra synchronisation and the reduced occupancy (larger blocks) outweighs the benefit. One-thread-per-point is simpler and sufficient.
+This would give N*D threads. However, it requires a reduction over D dimensions to produce the per-(point,cluster) distance, which needs shared memory and `__syncthreads()`. When D is small (the assumed case), the overhead of the extra synchronisation and the reduced occupancy (larger blocks) outweighs the benefit. One-thread-per-point is simpler and sufficient. **POSSIBILE APPROFONDIMENTO**
 
 ### 3.2 Centroids in `__constant__` memory
 

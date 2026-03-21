@@ -288,10 +288,10 @@ float compute_shift(const float *old_c, const float *new_c, int n_clusters, int 
 /* --------------------------------------------------------------------------
  * Vector utilities (host side, for init and I/O).
  * -------------------------------------------------------------------------- */
-static void vzero_h( float *p, int n_dims )
-{
-    for (int d = 0; d < n_dims; d++) p[d] = 0.0f;
-}
+// static void vzero_h( float *p, int n_dims )
+// {
+//     for (int d = 0; d < n_dims; d++) p[d] = 0.0f;
+// }
 
 static void vcopy_h( float *p1, const float *p2, int n_dims )
 {
