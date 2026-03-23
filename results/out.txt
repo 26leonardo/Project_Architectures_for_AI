@@ -48,5 +48,3 @@ Saved: plots/hyperthreading.png
 
 === OMP vs CUDA ===
 Saved: plots/omp_vs_cuda.png
-
-All plots saved to: plots/

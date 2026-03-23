@@ -21,47 +21,6 @@
  * along with this program.  If not, see <http://www.gnu.org/licenses/>.
  *
  * --------------------------------------------------------------------------
- *
- * ## Parallel Pattern Choice: PARTITION (data parallelism) + REDUCE
- *
- * Lloyd's algorithm has two phases per iteration:
- *
- *   1. classify()      -- assign each of the N points to its nearest centroid
- *   2. update_centroids() -- recompute each centroid as the mean of its points
- *
- * ### Why PARTITION?
- * In classify(), each point i is independent of every other point: it reads
- * `data[i*n_dims .. (i+1)*n_dims - 1]` and `centroids[0..K*D-1]`, and writes
- * only `cluster_of[i]` and `counts[j]`. With N >> K, the work is dominated by
- * the N outer iterations, so we split them evenly across threads (PARTITION).
- *
- * ### Why REDUCE?
- * Both `counts[j]` and `new_centroids[j*n_dims + d]` are accumulated over all
- * N points. This is a classic reduction. We use OpenMP's array-reduction
- * (available from OpenMP 4.5 for user-defined arrays via lastprivate/atomic)
- * via thread-private copies + a final serial merge, which avoids the overhead
- * of `#pragma omp atomic` inside the inner loop (K*D atomics per iteration).
- *
- * ### Memory layout and cache behaviour
- * data[]         is stored ROW-MAJOR: data[i*n_dims + d].
- * centroids[]    is stored ROW-MAJOR: centroids[j*n_dims + d].
- * new_centroids[] idem.
- *
- * In classify() the innermost loop iterates over d (dimensions) for a fixed
- * point i → contiguous memory reads → CACHE-FRIENDLY (spatial locality).
- * centroids[] is small (K*D floats, K<<N) and fits in L1/L2 of every thread,
- * so the repeated reads are essentially free.
- *
- * In update_centroids() we accumulate into new_centroids[cluster_of[i]*n_dims + d].
- * Because cluster_of[i] is random, this is a SCATTER with non-contiguous writes.
- * We mitigate this with private copies per thread (see below).
- *
- * ### Fixed-iteration mode
- * Define MAX_ITER_FIXED at compile time (-DMAX_ITER_FIXED=200) to run a
- * predetermined number of iterations instead of waiting for convergence.
- * This makes timing reproducible across datasets (same N => same wall-clock).
- * The original convergence check is preserved and selectable at compile time.
- *
  * Compile with:
  *      gcc -std=c99 -Wall -Wpedantic -fopenmp omp-k-means.c -o omp-k-means
  *
@@ -69,9 +28,6 @@
  *      OMP_NUM_THREADS=4 ./omp-k-means K input_file output_file
  *
  ****************************************************************************/
-
-/* Enable POSIX extensions which are required for making function
-   `clock_gettime()` (used in "hpc.h") visible. */
 #if _XOPEN_SOURCE < 600
 #define _XOPEN_SOURCE 600
 #endif
@@ -85,31 +41,37 @@
 
 /* --------------------------------------------------------------------------
  * Global variables (same as serial version; shared across all threads).
- * -------------------------------------------------------------------------- */
+ * -------------------------------------------------------------------------- 
+*/
 
-int n_dims;             /* number of dimensions.                */
-int n_points;           /* number of data points.               */
-int n_clusters;         /* number of clusters.                  */
+int n_dims;             /* number of dimensions.        D        */
+int n_points;           /* number of data points.       N        */
+int n_clusters;         /* number of clusters.          K        */
 
-float *data;            /* [n_points * n_dims]
-                           data[IDX(i,d)] is dimension d of point i. */
+float *data;            /* [array of length (n_points * n_dims)]
+                           `&data[i*n_dims]` points to the beginning
+                           of the i-th data items, which is an array
+                           of `n_dims` floating-point numbers.  */
 
-float *centroids;       /* [n_clusters * n_dims]
-                           centroids[IDX(j,d)] is dimension d of centroid j. */
+float *centroids;       /* [array of length (n_clusters * n_dims)]
+                           `&centroids[j*n_dims]` points to the
+                           beginning of the j-th centroid, which is an
+                           array of `n_dims` floating point
+                           numbers.                             */
 
-float *new_centroids;   /* [n_clusters * n_dims]
-                           Accumulator for the next centroid positions. */
+float *new_centroids;   /* [array of length (n_clusters * n_dims)] */
 
-int *counts;            /* [n_clusters]
-                           counts[j] = number of points assigned to cluster j. */
+int *counts;            /* [array of length n_clusters] `counts[j]`
+                           is the number of points that belong to
+                           cluster j.                           */
 
-int *cluster_of;        /* [n_points]
-                           cluster_of[i] = cluster ID of point i. */
-
-/* --------------------------------------------------------------------------
- * Helpers
- * -------------------------------------------------------------------------- */
-
+int *cluster_of;        /* [array of length n_points] `clusters_of[i]`
+                           is the ID of the cluster assigned to the
+                           i-th data point; cluster IDs are integer in
+                           0..(n_clusters-1).                   */
+                 
+/* A safe version of `malloc()` that aborts if memory allocation
+   fails. */
 void *safe_malloc(size_t size)
 {
     void *result = malloc(size);
@@ -117,41 +79,46 @@ void *safe_malloc(size_t size)
     return result;
 }
 
-/* --------------------------------------------------------------------------
- * Vector utilities (operate on arrays of n_dims floats).
- * These are called in hot loops. With OpenMP they run inside parallel
- * regions on private/local data, so no synchronisation is needed here.
- * -------------------------------------------------------------------------- */
+/******************************************************************************
+ **
+ ** Utility functions that operate on arrays of `n_dims` elements.
+ **
+ ******************************************************************************/
 
+/* Set all components of vector `p` of size `n_dims` equal to zero. */
 void vzero( float *p )
 {
-    for (int d = 0; d < n_dims; d++)
+    for (int d=0; d<n_dims; d++)
         p[d] = 0.0f;
 }
 
+/* Add vector `p1` to vector `p2`; store result in `p1`. Both vectors
+   have size `n_dims`. */
 void vadd( float *p1, const float *p2 )
 {
-    for (int d = 0; d < n_dims; d++)
+    for (int d=0; d<n_dims; d++)
         p1[d] += p2[d];
 }
 
+/* Multiply each element of vector `p` of size `n_dims` by `v`. */
 void vmul( float *p, float v )
 {
-    for (int d = 0; d < n_dims; d++)
+    for (int d=0; d<n_dims; d++)
         p[d] *= v;
 }
 
+/* Copy `p2` into `p1`. */
 void vcopy( float *p1, const float *p2 )
 {
-    for (int d = 0; d < n_dims; d++)
+    for (int d=0; d<n_dims; d++)
         p1[d] = p2[d];
 }
 
-/* Squared Euclidean distance between p1 and p2.
-   Inner loop over d: contiguous accesses if both are row-major → cache-friendly. */
-float sqdist( const float *p1, const float *p2 )
+/* Squared Euclidean distance between p1 and p2.*/
+float sqdist(const float *p1, const float *p2)
 {
     float result = 0.0f;
+    #pragma omp simd reduction(+:result)
     for (int d = 0; d < n_dims; d++) {
         const float diff = p1[d] - p2[d];
         result += diff * diff;
@@ -159,81 +126,82 @@ float sqdist( const float *p1, const float *p2 )
     return result;
 }
 
-/* --------------------------------------------------------------------------
- * Index helper (same semantics as serial version).
- * -------------------------------------------------------------------------- */
+/* This function can be used to access the arrays (actually, matrices)
+   `data`, `centroids` and `new_centroids`. These are all matrices
+   with `n_dims` columns. The function returns the linear index of row
+   `i` and column `d`. Example: `data[IDX(i, d)]` is equivalent to
+   `data[i*n_dims + d]`. */
 int IDX(int i, int d)
 {
-    return i * n_dims + d;
+    return i*n_dims + d;
 }
 
-/* --------------------------------------------------------------------------
- * Random helpers (NOT parallelized: rand() is not thread-safe).
- * -------------------------------------------------------------------------- */
+/* Return a random integer in a..b. This function must not be
+   parallelized, since `rand()` is not thread-safe. */
 int randab(int a, int b)
 {
-    return a + rand() % (b - a + 1);
+    return a + rand() % (b-a+1);
 }
 
 /* Centroid initialization (NOT parallelized: rand() is not thread-safe). */
 void init_centroids( void )
 {
-    int select    = n_clusters;
+    int select = n_clusters;
     int remaining = n_points;
-    for (int i = 0; (i < n_points) && (select > 0); i++) {
+    for (int i=0; (i < n_points) && (select > 0); i++) {
         if ((rand() % remaining) < select) {
             select--;
-            vcopy( &centroids[IDX(select, 0)], &data[IDX(i, 0)] );
+            /* Select point `i` as one of the centroids. */
+            vcopy( &centroids[IDX(select,0)], &data[IDX(i,0)] );
         }
         remaining--;
     }
 }
 
 /* --------------------------------------------------------------------------
- * classify() -- PARALLEL
+ * classify()
  *
  * Pattern: PARTITION (embarrassingly parallel over points).
  *
  * Each thread handles a contiguous block of points (static schedule,
  * default chunk = N/nthreads). Static is chosen because every point
  * performs the same amount of work (K distance computations of D
- * operations each) → perfect load balance with static scheduling.
+ * operations each) 
+ * Perfect load balance with static scheduling.
  *
  * `counts` and `cluster_of` have disjoint write ranges per iteration:
  *   - cluster_of[i] is written by exactly one thread (the one owning point i).
- *   - counts[j] can be incremented by multiple threads → RACE CONDITION.
+ *   - counts[j] can be incremented by multiple threads (POSSIBLE RACE CONDITION).
  *
  * Resolution for counts: each thread keeps a PRIVATE copy of counts
  * (local_counts[j]), then they are merged with #pragma omp atomic after
  * the loop. This avoids serialising the inner loop with per-increment atomics.
  *
- * Memory access pattern:
- *   - data[i*n_dims .. i*n_dims+D-1]: sequential read per point → cache hit.
+ * Memory access pattern:  ???????????????????
+ *   - data[i*n_dims .. i*n_dims+D-1]: sequential read per point (optimizes cache hit).
  *   - centroids[j*n_dims .. j*n_dims+D-1]: K*D floats total; small enough
  *     to reside in L1/L2 for all threads (K<<N, D small). Each thread
- *     reads the full centroid array → shared read, no invalidation.
+ *     reads the full centroid array.
  * -------------------------------------------------------------------------- */
 void classify( void )
 {
     /* Reset global counts; will be accumulated from private copies below. */
-    for (int j = 0; j < n_clusters; j++)
-        counts[j] = 0;
+    memset(counts, 0, n_clusters * sizeof(int));
 
     #pragma omp parallel default(none) shared(data, centroids, cluster_of, counts, n_points, n_clusters, n_dims)
     {
         /* Private per-thread accumulator for cluster sizes.
            Avoids a critical section or atomic inside the inner loop. */
         int *local_counts = (int*)safe_malloc(n_clusters * sizeof(int));
-        for (int j = 0; j < n_clusters; j++)
-            local_counts[j] = 0;
+        memset(local_counts, 0, n_clusters * sizeof(int));
 
         /* Partition the N points across threads (static = even chunks,
            good load balance since all points do the same work). */
         #pragma omp for schedule(static)
         for (int i = 0; i < n_points; i++) {
             /* Find the nearest centroid for point i.
-               Accesses data[i*n_dims .. i*n_dims+D-1] sequentially → good locality. */
-            int   nearest = 0;
+               Accesses data[i*n_dims .. i*n_dims+D-1] sequentially  good locality. */
+            int nearest = 0;
             float mindist = sqdist( &data[IDX(i, 0)], &centroids[IDX(0, 0)] );
 
             for (int j = 1; j < n_clusters; j++) {
@@ -244,18 +212,18 @@ void classify( void )
                 }
             }
             cluster_of[i] = nearest;
-            local_counts[nearest]++;   /* write to private copy: no race */
+            local_counts[nearest]++; 
         }
 
         /* Merge private counts into the global array.
-           Only K atomic increments per thread (K << N) → negligible overhead. */
+           Only K atomic increments per thread (K << N)  negligible overhead. */
         for (int j = 0; j < n_clusters; j++) {
             #pragma omp atomic
             counts[j] += local_counts[j];
         }
 
         free(local_counts);
-    } /* implicit barrier here: all threads done before update_centroids() reads counts */
+    } /* implicit barrier here*/
 }
 
 /* --------------------------------------------------------------------------
@@ -272,16 +240,16 @@ void classify( void )
  *   (local_nc[j*n_dims + d]) and accumulates locally, then merges.
  *   Cost of merge: K*D atomics per thread (K*D << N*K*D).
  *
- *   Alternative (not used): #pragma omp atomic on each vadd() → K*D
+ *   Alternative (not used): #pragma omp atomic on each vadd()  K*D
  *   atomics PER POINT, which would serialise the inner loop.
  *
  *   Memory access in the accumulation:
- *   - data[i*n_dims .. i*n_dims+D-1]: sequential → cache-friendly.
+ *   - data[i*n_dims .. i*n_dims+D-1]: sequential  cache-friendly.
  *   - local_nc[cluster_of[i]*n_dims .. +D-1]: scattered write, but
  *     local_nc is private per thread and fits in L1 (K*D floats, K<<N).
  *
  * Phase B: normalise and compute max shift.
- *   Only K*D operations → serial (negligible vs N*K*D work in Phase A).
+ *   Only K*D operations  serial (negligible vs N*K*D work in Phase A).
  *   Only one thread performs it (omp single), others wait at the implicit barrier.
  * -------------------------------------------------------------------------- */
 float update_centroids( void )
@@ -302,7 +270,7 @@ float update_centroids( void )
         /* Partition: each thread accumulates over its block of points. */
         #pragma omp for schedule(static)
         for (int i = 0; i < n_points; i++) {
-            /* data[i*n_dims..] is sequential → spatial locality. */
+            /* data[i*n_dims..] is sequential  spatial locality. */
             vadd( &local_nc[IDX(cluster_of[i], 0)], &data[IDX(i, 0)] );
         }
 
