@@ -283,12 +283,8 @@ void read_input( FILE *f )
     while (1 == fscanf(f, "%f", &dummy))
         n_items++;
 
-    n_points = n_items / n_dims; // RESOLVED BUG: This has to be before the assertion below
-
-    assert(n_points % n_dims == 0); /* If this assertion fails, then
-                                       there is some line of the input
-                                       file that has != n_dims
-                                       items. */
+    assert(n_items % n_dims == 0);
+    n_points = n_items / n_dims;
 
 
     data = (float*)safe_malloc(n_points * n_dims * sizeof(*data));
@@ -441,7 +437,6 @@ int main( int argc, char *argv[] )
     float shift;
     int iter = 0;
     const double tstart = hpc_gettime();
-#pragma omp parallel
     do {
         classify();
         /* The following lines are useful only if you want to generate

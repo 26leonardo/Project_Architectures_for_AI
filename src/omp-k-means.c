@@ -5,7 +5,7 @@
  * Based on k-means.c by Moreno Marzolla
  * <https://unibo.it/sitoweb/moreno.marzolla/>
  *
- * Parallelization by: [student]
+ * Parallelization by: Leonardo Billi
  *
  * This program is free software: you can redistribute it and/or modify
  * it under the terms of the GNU General Public License as published by
@@ -35,7 +35,7 @@
 #include "../utils/hpc.h"
 #include <stdio.h>
 #include <stdlib.h>
-#include <string.h>     /* memset, memcpy */
+#include <string.h>     /* memset */
 #include <assert.h>
 #include <omp.h>
 
@@ -88,14 +88,14 @@ void *safe_malloc(size_t size)
 /* Set all components of vector `p` of size `n_dims` equal to zero. */
 void vzero( float *p )
 {
-    for (int d=0; d<n_dims; d++)
-        p[d] = 0.0f;
+    memset(p, 0, n_dims * sizeof(float));
 }
 
 /* Add vector `p1` to vector `p2`; store result in `p1`. Both vectors
    have size `n_dims`. */
 void vadd( float *p1, const float *p2 )
 {
+    #pragma omp simd
     for (int d=0; d<n_dims; d++)
         p1[d] += p2[d];
 }
@@ -103,6 +103,7 @@ void vadd( float *p1, const float *p2 )
 /* Multiply each element of vector `p` of size `n_dims` by `v`. */
 void vmul( float *p, float v )
 {
+    #pragma omp simd
     for (int d=0; d<n_dims; d++)
         p[d] *= v;
 }
@@ -110,6 +111,7 @@ void vmul( float *p, float v )
 /* Copy `p2` into `p1`. */
 void vcopy( float *p1, const float *p2 )
 {
+    #pragma omp simd
     for (int d=0; d<n_dims; d++)
         p1[d] = p2[d];
 }
@@ -227,7 +229,7 @@ void classify( void )
 }
 
 /* --------------------------------------------------------------------------
- * update_centroids() -- PARALLEL
+ * update_centroids()
  *
  * Pattern: PARTITION + REDUCE.
  *
@@ -252,7 +254,7 @@ void classify( void )
  *   Only K*D operations  serial (negligible vs N*K*D work in Phase A).
  *   Only one thread performs it (omp single), others wait at the implicit barrier.
  * -------------------------------------------------------------------------- */
-float update_centroids( void )
+void update_centroids( void )
 {
     /* Reset new_centroids accumulator. */
     for (int j = 0; j < n_clusters; j++)
@@ -265,7 +267,7 @@ float update_centroids( void )
         /* Private per-thread accumulator for new centroid positions.
            Size = K*D floats; K and D are small, so this fits in L1/L2. */
         float *local_nc = (float*)safe_malloc(nc_size * sizeof(float));
-        memset(local_nc, 0, nc_size * sizeof(float));
+        memset( local_nc, 0, nc_size * sizeof(float));
 
         /* Partition: each thread accumulates over its block of points. */
         #pragma omp for schedule(static)
@@ -302,21 +304,30 @@ float update_centroids( void )
             maxshift = shift;
         vcopy( &centroids[IDX(j, 0)], &new_centroids[IDX(j, 0)] );
     }
-
-    return maxshift;
 }
 
-/* --------------------------------------------------------------------------
- * Input/Output functions. DO NOT parallelize them.
- * -------------------------------------------------------------------------- */
+/******************************************************************************
+ **
+ ** Input/output functions. DO NOT parallelize them.
+ **
+ ******************************************************************************/
 
+/* Read the input data from `f`. Each row must contain `n_dims`
+   numbers. This function figures out how many numbers are in a row,
+   and how many rows there are. Then, it initializes the variables
+   `n_dims` and `n_points` accordingly. */
 void read_input( FILE *f )
 {
     const size_t BUFLEN = 1024;
     char buffer[BUFLEN];
 
+    /* Get the first line of the input file, and count how many
+       numbers are there. This function is not very robust: if the
+       first line is empty, the number of dimensions will be zero; if
+       the first line has more than `BUFLEN` characters, the number of
+       fields will be computed incorrectly. */
     char *i_dont_care = fgets(buffer, BUFLEN, f);
-    (void)i_dont_care;
+    (void)i_dont_care; /* Avoid a compiler warning. */
     n_dims = -1;
     char *start, *end = buffer;
     do {
@@ -325,66 +336,30 @@ void read_input( FILE *f )
         n_dims++;
     } while (end != start);
 
-    assert(n_dims > 0);
+    assert(n_dims > 0); /* If this assertion fails, then the first
+                           line of the input is empty. */
 
+    /* Rewind the file and count how many data items are there. */
     rewind(f);
     int n_items = 0;
     float dummy;
     while (1 == fscanf(f, "%f", &dummy))
         n_items++;
 
+    assert(n_items % n_dims == 0);
     n_points = n_items / n_dims;
-
-    assert(n_points % n_dims == 0);
 
     data = (float*)safe_malloc(n_points * n_dims * sizeof(*data));
 
+    /* Rewind and read the actual data. */
     rewind(f);
-    for (int i = 0; i < n_points; i++) {
-        for (int d = 0; d < n_dims; d++) {
+    for (int i=0; i<n_points; i++) {
+        for (int d=0; d<n_dims; d++) {
             const int nread = fscanf(f, "%f", &data[IDX(i, d)]);
             assert(nread == 1);
         }
     }
 }
-
-#ifdef MAKE_MOVIE
-
-void save_centroids( int iter )
-{
-    char buf[1024];
-    snprintf(buf, sizeof(buf), "temp/centroids_%03u.txt", (unsigned)iter);
-    FILE *f = fopen(buf, "w"); assert(f != NULL);
-    if (f == NULL) {
-        fprintf(stderr, "FATAL: can not open file \"%s\" for writing\n", buf);
-        exit(EXIT_FAILURE);
-    }
-    for (int j = 0; j < n_clusters; j++) {
-        for (int d = 0; d < n_dims; d++)
-            fprintf(f, "%f ", centroids[IDX(j, d)]);
-        fprintf(f, "\n");
-    }
-    fclose(f);
-}
-
-void save_clusters( int iter )
-{
-    char buf[1024];
-    snprintf(buf, sizeof(buf), "temp/out_%03u.txt", (unsigned)iter);
-    FILE *f = fopen(buf, "w");
-    if (f == NULL) {
-        fprintf(stderr, "FATAL: can not open file \"%s\" for writing\n", buf);
-        exit(EXIT_FAILURE);
-    }
-    for (int i = 0; i < n_points; i++) {
-        for (int d = 0; d < n_dims; d++)
-            fprintf(f, "%f ", data[IDX(i, d)]);
-        fprintf(f, "%d\n", cluster_of[i]);
-    }
-    fclose(f);
-}
-
-#endif
 
 void save_results( FILE *f )
 {
@@ -403,9 +378,11 @@ void save_results( FILE *f )
     }
 }
 
-/* --------------------------------------------------------------------------
- * Main
- * -------------------------------------------------------------------------- */
+/******************************************************************************
+ **
+ ** Main program.
+ **
+ ******************************************************************************/
 int main( int argc, char *argv[] )
 {
     FILE *inputf, *outputf;
@@ -417,12 +394,10 @@ int main( int argc, char *argv[] )
        iterations, so wall-clock time is not contaminated by dataset variance. */
 #ifdef MAX_ITER_FIXED
     const int fixed_iters = MAX_ITER_FIXED;
-    /* Suppress "unused variable" warnings: MAXITER and TOL are only used
-       in the convergence-check branch, which is compiled out here. */
+    /* Suppress "unused variable" warnings: MAXITER */
     (void)0;
 #else
     const int    MAXITER = 100;
-    const float  TOL     = 1e-5f;  /* squared tolerance */
 #endif
 
     if (argc != 4) {
@@ -454,10 +429,10 @@ int main( int argc, char *argv[] )
     fprintf(outputf, "# Clusters: %d\n",     n_clusters);
 
     printf("\nInput file....... %s\n", argv[2]);
-    printf("Output file...... %s\n",  argv[3]);
-    printf("Data points (N).. %d\n",  n_points);
-    printf("Dimensions (D)... %d\n",  n_dims);
-    printf("Clusters (K)..... %d\n",  n_clusters);
+    printf("Output file...... %s\n", argv[3]);
+    printf("Data points (N).. %d\n", n_points);
+    printf("Dimensions (D)... %d\n", n_dims);
+    printf("Clusters (K)..... %d\n\n", n_clusters);
     printf("Threads.......... %d\n\n", omp_get_max_threads());
 
     centroids     = (float*)safe_malloc(n_clusters * n_dims * sizeof(*centroids));
@@ -470,20 +445,14 @@ int main( int argc, char *argv[] )
 
     printf("Main loop starts\n\n");
 
-    float  shift = 0.0f;
-    int    iter  = 0;
+    int iter = 0;
     const double tstart = hpc_gettime();
 
     do {
         classify();
-
-#ifdef MAKE_MOVIE
-        save_centroids(iter);
-        save_clusters(iter);
-#endif
-
-        shift = update_centroids();
-        printf("Iteration %3d, shift = %f\n", iter, shift);
+        update_centroids();
+        // I delete the print of shift because input/output are the most compute-intensive part of the code, and printing to console is very slow, so it would affect the timing. If you want to print shift, you can uncomment the line below.
+        // printf("Iteration %3d, shift = %f\n", iter, shift);
         iter++;
 
 #ifdef MAX_ITER_FIXED
@@ -491,7 +460,7 @@ int main( int argc, char *argv[] )
     } while (iter < fixed_iters);
 #else
         /* Original convergence check. */
-    } while ( (shift > TOL) && (iter <= MAXITER) );
+    } while ((iter <= MAXITER) );
 #endif
 
     const double elapsed = hpc_gettime() - tstart;

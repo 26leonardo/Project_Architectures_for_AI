@@ -1,8 +1,10 @@
 CC      = gcc
 NVCC    = nvcc
 
-CFLAGS  = -std=c99 -Wall -Wpedantic #-O3
+CFLAGS  = -std=c99 -Wall -Wpedantic 
+O3 		= -O3
 OMPFLAGS= -fopenmp
+MAXITERS= -DMAX_ITER_FIXED=150
 # RTX 4060 Ti is Ada Lovelace → sm_89. Adjust if compiling on a different GPU.
 CUDAFLAGS = -arch=sm_89 # ADJUST ARCHITECTURE AS NEEDED #-O3
 
@@ -14,12 +16,14 @@ DATA_DIR  = data
 
 SERIAL   = k-means
 OMP      = omp-k-means
+OMP_V2   = omp-k-means-v2
+OMP_V3   = omp-k-means-v3
 CUDA     = cuda-k-means
 INPUTGEN = inputgen
 
 .PHONY: all clean distclean demo
 
-all: $(SERIAL) $(OMP) $(CUDA) $(INPUTGEN)
+all: $(OMP) $(OMP_V2) $(OMP_V3) $(INPUTGEN) $(CUDA)# $(SERIAL) 
 
 # Serial baseline: omp-k-means.c compiled with OpenMP but run with
 # OMP_NUM_THREADS=1. This is the CORRECT baseline for speedup measurement:
@@ -29,11 +33,14 @@ $(SERIAL):
 	$(CC) $(CFLAGS) $(OMPFLAGS) $(SRC_DIR)/omp-k-means.c -o $@ $(LDFLAGS)
 
 $(OMP):
-	$(CC) $(CFLAGS) $(OMPFLAGS) $(SRC_DIR)/omp-k-means.c -o $@ $(LDFLAGS)
-
+	$(CC) $(MAXITERS) $(CFLAGS) $(OMPFLAGS) $(SRC_DIR)/omp-k-means.c -o $@ $(LDFLAGS)
+$(OMP_V2):
+	$(CC) $(MAXITERS) $(CFLAGS) $(OMPFLAGS) $(SRC_DIR)/new/omp-k-means-v2.c -o $@ $(LDFLAGS)
+$(OMP_V3):
+	$(CC) $(MAXITERS) $(CFLAGS) $(OMPFLAGS) $(SRC_DIR)/new/omp-k-means-v3.c -o $@ $(LDFLAGS)
 # Source is .cu (nvcc requires CUDA source extension).
 $(CUDA):
-	$(NVCC) $(CUDAFLAGS) $(SRC_DIR)/cuda-k-means.cu -o $@ $(LDFLAGS)
+	$(NVCC) $(MAXITERS) $(CUDAFLAGS) $(SRC_DIR)/cuda-k-means.cu -o $@ $(LDFLAGS)
 
 $(INPUTGEN):
 	$(CC) $(CFLAGS) $(UTILS_DIR)/inputgen.c -o $@
@@ -47,7 +54,7 @@ demo: $(SERIAL)
 	ffmpeg -pattern_type glob -stream_loop 5 -y -r 1 -i "img/img_*.png" -vcodec mpeg4 -r 1 demo.avi
 
 clean:
-	rm -f $(SERIAL) $(OMP) $(CUDA) $(INPUTGEN) *.o
+	rm -f $(OMP) $(OMP_V2) $(OMP_V3) $(CUDA) $(INPUTGEN) *.o
 
 distclean: clean
 	rm -f *~ temp/centroids_*.txt temp/out_*.txt img/img_*.png *.avi demo.out

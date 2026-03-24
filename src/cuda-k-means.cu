@@ -5,7 +5,8 @@
  * Based on k-means.c by Moreno Marzolla
  * <https://unibo.it/sitoweb/moreno.marzolla/>
  *
- * Parallelization by: [student]
+ * Parallelization by: Leonardo Billi 
+ *
  *
  * This program is free software: you can redistribute it and/or modify
  * it under the terms of the GNU General Public License as published by
