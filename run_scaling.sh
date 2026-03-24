@@ -125,7 +125,7 @@ gen_input() {
 # O3 version
 # ---------------------------------------------------------------------------
 echo "=== initial test (OpenMP O3) ==="
-for SS_N in 500000 1000000 3000000; do          # 500K, 1M, 3M points total        
+for SS_N in 500000 1000000; do          # 3000000  500K, 1M, 3M points total        
     SS_PPC=$(( SS_N / K ))
     SS_INPUT="$DATA_DIR/strong_O3_N${SS_N}_D${D}_K${K}.txt"
     gen_input "$SS_PPC" "$D" "$K" "$SS_INPUT"

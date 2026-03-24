@@ -1,0 +1,4 @@
+experiment,threads,N,K,D,iters,run,elapsed
+weak_omp,1,100000,8,40,150,1,11.989311
+weak_omp,1,100000,8,40,150,2,12.000528
+weak_omp,1,100000,8,40,150,3,12.061846
