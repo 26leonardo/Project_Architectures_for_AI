@@ -1,0 +1,3 @@
+experiment,threads,N,K,D,iters,run,elapsed
+strong_O3,1,500000,8,40,150,1,3.494631
+strong_O3,1,500000,8,40,150,2,3.510694

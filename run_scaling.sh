@@ -31,6 +31,7 @@ set -euo pipefail
 BINARY_OMP="./omp-k-means"
 BINARY_OMP_V2="./omp-k-means-v2"
 BINARY_OMP_V3="./omp-k-means-v3"
+BINARY_OMP_O3="./omp-k-means-o3"
 BINARY_CUDA="./cuda-k-means"
 INPUTGEN="./inputgen"
 
@@ -43,7 +44,7 @@ NRUNS=5
 
 # Fixed K and D for all scaling experiments (K << N, D small as per spec).
 K=8
-D=16
+D=40
 
 # Fixed-iteration mode: always run exactly MAXITER iterations so that
 # wall-clock time is not affected by convergence speed differences between
@@ -94,7 +95,7 @@ gen_input() {
 
 
 # ---------------------------------------------------------------------------
-# 1. find K and N (OpenMP)
+#  find K and N (OpenMP)
 # echo "=== initial test_v2s (OpenMP) ==="
 
 # for SS_N in 20000 2000000 200000; do          # 2M points total
@@ -120,6 +121,29 @@ gen_input() {
 
 #     echo "  → $SS_CSV"
 # done
+#---------------------------------------------------------------------------
+# O3 version
+# ---------------------------------------------------------------------------
+echo "=== initial test (OpenMP O3) ==="
+for SS_N in 500000 1000000 3000000; do          # 500K, 1M, 3M points total        
+    SS_PPC=$(( SS_N / K ))
+    SS_INPUT="$DATA_DIR/strong_O3_N${SS_N}_D${D}_K${K}.txt"
+    gen_input "$SS_PPC" "$D" "$K" "$SS_INPUT"
+    SS_CSV="$RESULTS_DIR/strong_O3.csv"
+    echo "experiment,threads,N,K,D,iters,run,elapsed" > "$SS_CSV"
+    for THREADS in 1 2 4 6 8 10 12 14 16; do
+        echo "  Threads=$THREADS"
+        for RUN in $(seq 1 $NRUNS); do
+            OUT="$DATA_DIR/tmp_strong_O3.out"
+            T=$( run_timed "$BINARY_OMP_O3" "$THREADS" "$K" "$SS_INPUT" "$OUT" )
+            echo "strong_O3,$THREADS,$SS_N,$K,$D,$MAXITER,$RUN,$T" >> "$SS_CSV"
+            rm -f "$OUT"
+        done
+    done
+    python3 utils/plot_speedup.py "strong_O3_${SS_N}" --input "$SS_CSV"
+    echo "  → $SS_CSV"
+done
+
 
 # ---------------------------------------------------------------------------
 # 1. STRONG SCALING (OpenMP)
@@ -129,7 +153,7 @@ gen_input() {
 # N is chosen large enough to avoid timing noise but to fit in RAM.
 # ---------------------------------------------------------------------------
 echo "=== Strong Scaling (OpenMP) ==="
-SS_N=2000000          # 2M points total
+SS_N=500000          # 500_000
 SS_PPC=$(( SS_N / K ))
 SS_INPUT="$DATA_DIR/strong_N${SS_N}_D${D}_K${K}.txt"
 gen_input "$SS_PPC" "$D" "$K" "$SS_INPUT"
@@ -156,40 +180,56 @@ for version in "v1" "v2" "v3"; do
         done
     done
     
-    python3 utils/plot_speedup.py "strong_omp_${version}_${SS_N}"
+    python3 utils/plot_speedup.py "strong_omp_${version}_${SS_N}" --input "$SS_CSV"
 
     echo "  → $SS_CSV"
 done
-# # ---------------------------------------------------------------------------
-# # 2. WEAK SCALING (OpenMP)
-# #
-# # Per-thread problem size is kept constant; total N grows with thread count.
-# # K and D are fixed (spec: "probably ok to keep K and D fixed").
-# # Per-thread work: N_per_thread = 250000 points.
-# # Total N = N_per_thread * threads.
-# # ---------------------------------------------------------------------------
-# echo "=== Weak Scaling (OpenMP) ==="
+# ---------------------------------------------------------------------------
+# 2. WEAK SCALING (OpenMP)
+#
+# Per-thread problem size is kept constant; total N grows with thread count.
+# K and D are fixed (spec: "probably ok to keep K and D fixed").
+# Per-thread work: N_per_thread = 250000 points.
+# Total N = N_per_thread * threads.
+# ---------------------------------------------------------------------------
+echo "=== Weak Scaling (OpenMP) ==="
 
-# WS_PER_THREAD=250000
-# WS_CSV="$RESULTS_DIR/weak_omp.csv"
-# echo "experiment,threads,N,K,D,iters,run,elapsed" > "$WS_CSV"
+WS_PER_THREAD=100000 # 100_000 points per thread 
 
-# for THREADS in 1 2 4 6 8 10 12 14 16; do
-#     WS_N=$(( WS_PER_THREAD * THREADS ))
-#     WS_PPC=$(( WS_N / K ))
-#     WS_INPUT="$DATA_DIR/weak_N${WS_N}_D${D}_K${K}.txt"
-#     gen_input "$WS_PPC" "$D" "$K" "$WS_INPUT"
+for version in "v1" "v2" "v3"; do
+    echo "  Version: $version"
+    WS_CSV="$RESULTS_DIR/${version}/weak_omp.csv"
 
-#     echo "  Threads=$THREADS, N=$WS_N"
-#     for RUN in $(seq 1 $NRUNS); do
-#         OUT="$DATA_DIR/tmp_weak.out"
-#         T=$( run_timed "$BINARY_OMP" "$THREADS" "$K" "$WS_INPUT" "$OUT" )
-#         echo "weak_omp,$THREADS,$WS_N,$K,$D,$MAXITER,$RUN,$T" >> "$WS_CSV"
-#         rm -f "$OUT"
-#     done
-# done
+    echo "experiment,threads,N,K,D,iters,run,elapsed" > "$WS_CSV"
+    for THREADS in 1 2 4 6 8 10 12 14 16; do
+        WS_N=$(( WS_PER_THREAD * THREADS ))
+        WS_PPC=$(( WS_N / K ))
+        WS_INPUT="$DATA_DIR/weak_N${WS_N}_D${D}_K${K}.txt"
+        gen_input "$WS_PPC" "$D" "$K" "$WS_INPUT"
 
-# echo "  → $WS_CSV"
+        echo "  Threads=$THREADS, N=$WS_N"
+        for RUN in $(seq 1 $NRUNS); do
+            OUT="$DATA_DIR/tmp_weak.out"
+            case "$version" in
+                "v1") BINARY="$BINARY_OMP" ;;
+                "v2") BINARY="$BINARY_OMP_V2" ;;
+                "v3") BINARY="$BINARY_OMP_V3" ;;
+                *) echo "Invalid version: $version"; exit 1 ;;
+            esac
+            T=$( run_timed "$BINARY" "$THREADS" "$K" "$WS_INPUT" "$OUT" )
+            echo "weak_omp,$THREADS,$WS_N,$K,$D,$MAXITER,$RUN,$T" >> "$WS_CSV"
+            rm -f "$OUT"
+        done
+    done
+
+    python3 utils/plot_weak_scaling.py "weak_omp_${version}_${WS_N}" --input "$WS_CSV"
+
+    echo "  → $WS_CSV"
+done
+
+# ----------------------------------------------------------------------------
+
+
 
 # # ---------------------------------------------------------------------------
 # # 3. CUDA BASELINE

@@ -1,6 +1,0 @@
-experiment,threads,N,K,D,iters,run,elapsed
-strong_omp,1,2000000,8,16,150,1,265.757
-strong_omp,1,2000000,8,16,150,2,264.071
-strong_omp,1,2000000,8,16,150,3,265.649
-strong_omp,1,2000000,8,16,150,4,263.419
-strong_omp,1,2000000,8,16,150,5,265.022
