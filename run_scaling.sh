@@ -31,7 +31,9 @@ set -euo pipefail
 BINARY_OMP="./omp-k-means"
 BINARY_OMP_V2="./omp-k-means-v2"
 BINARY_OMP_V3="./omp-k-means-v3"
+BINARY_OMP_V4="./omp-k-means-v4"
 BINARY_OMP_O3="./omp-k-means-o3"
+BINARY_OMP_O3_V4="./omp-k-means-o3-v4"
 BINARY_CUDA="./cuda-k-means"
 INPUTGEN="./inputgen"
 
@@ -124,25 +126,25 @@ gen_input() {
 #---------------------------------------------------------------------------
 # O3 version
 # ---------------------------------------------------------------------------
-echo "=== initial test (OpenMP O3) ==="
-for SS_N in 500000 1000000; do          # 3000000  500K, 1M, 3M points total        
-    SS_PPC=$(( SS_N / K ))
-    SS_INPUT="$DATA_DIR/strong_O3_N${SS_N}_D${D}_K${K}.txt"
-    gen_input "$SS_PPC" "$D" "$K" "$SS_INPUT"
-    SS_CSV="$RESULTS_DIR/strong_O3.csv"
-    echo "experiment,threads,N,K,D,iters,run,elapsed" > "$SS_CSV"
-    for THREADS in 1 2 4 6 8 10 12 14 16; do
-        echo "  Threads=$THREADS"
-        for RUN in $(seq 1 $NRUNS); do
-            OUT="$DATA_DIR/tmp_strong_O3.out"
-            T=$( run_timed "$BINARY_OMP_O3" "$THREADS" "$K" "$SS_INPUT" "$OUT" )
-            echo "strong_O3,$THREADS,$SS_N,$K,$D,$MAXITER,$RUN,$T" >> "$SS_CSV"
-            rm -f "$OUT"
-        done
-    done
-    python3 utils/plot_speedup.py "strong_O3_${SS_N}" --input "$SS_CSV"
-    echo "  → $SS_CSV"
-done
+# echo "=== initial test (OpenMP O3) ==="
+# for SS_N in 500000 1000000; do          # 3000000  500K, 1M, 3M points total        
+#     SS_PPC=$(( SS_N / K ))
+#     SS_INPUT="$DATA_DIR/strong_O3_v4_N${SS_N}_D${D}_K${K}.txt"
+#     gen_input "$SS_PPC" "$D" "$K" "$SS_INPUT"
+#     SS_CSV="$RESULTS_DIR/strong_O3_v4.csv"
+#     echo "experiment,threads,N,K,D,iters,run,elapsed" > "$SS_CSV"
+#     for THREADS in 1 2 4 6 8 10 12 14 16; do
+#         echo "  Threads=$THREADS"
+#         for RUN in $(seq 1 $NRUNS); do
+#             OUT="$DATA_DIR/tmp_strong_O3_v4.out"
+#             T=$( run_timed "$BINARY_OMP_O3_V4" "$THREADS" "$K" "$SS_INPUT" "$OUT" )
+#             echo "strong_O3_v4,$THREADS,$SS_N,$K,$D,$MAXITER,$RUN,$T" >> "$SS_CSV"
+#             rm -f "$OUT"
+#         done
+#     done
+#     python3 utils/plot_speedup.py "strong_O3_v4_${SS_N}" --input "$SS_CSV"
+#     echo "  → $SS_CSV"
+# done
 
 
 # ---------------------------------------------------------------------------
@@ -152,38 +154,39 @@ done
 # (includes hyperthreading study: 8 physical vs 16 logical cores).
 # N is chosen large enough to avoid timing noise but to fit in RAM.
 # ---------------------------------------------------------------------------
-echo "=== Strong Scaling (OpenMP) ==="
-SS_N=500000          # 500_000
-SS_PPC=$(( SS_N / K ))
-SS_INPUT="$DATA_DIR/strong_N${SS_N}_D${D}_K${K}.txt"
-gen_input "$SS_PPC" "$D" "$K" "$SS_INPUT"
+# echo "=== Strong Scaling (OpenMP) ==="
+# SS_N=500000          # 500_000
+# SS_PPC=$(( SS_N / K ))
+# SS_INPUT="$DATA_DIR/strong_N${SS_N}_D${D}_K${K}.txt"
+# gen_input "$SS_PPC" "$D" "$K" "$SS_INPUT"
 
-for version in "v1" "v2" "v3"; do
-    echo "  Version: $version"
-    mkdir -p "$RESULTS_DIR/${version}"
-    SS_CSV="$RESULTS_DIR/${version}/strong_omp.csv"
-    echo "experiment,threads,N,K,D,iters,run,elapsed" > "$SS_CSV"
+# for version in "v4"; do
+#     echo "  Version: $version"
+#     mkdir -p "$RESULTS_DIR/${version}"
+#     SS_CSV="$RESULTS_DIR/${version}/strong_omp.csv"
+#     echo "experiment,threads,N,K,D,iters,run,elapsed" > "$SS_CSV"
 
-    for THREADS in 1 2 4 6 8 10 12 14 16; do
-        echo "  Threads=$THREADS"
-        for RUN in $(seq 1 $NRUNS); do
-            OUT="$DATA_DIR/tmp_strong.out"
-            case "$version" in
-                "v1") BINARY="$BINARY_OMP" ;;
-                "v2") BINARY="$BINARY_OMP_V2" ;;
-                "v3") BINARY="$BINARY_OMP_V3" ;;
-                *) echo "Invalid version: $version"; exit 1 ;;
-            esac
-            T=$( run_timed "$BINARY" "$THREADS" "$K" "$SS_INPUT" "$OUT" )
-            echo "strong_omp,$THREADS,$SS_N,$K,$D,$MAXITER,$RUN,$T" >> "$SS_CSV"
-            rm -f "$OUT"
-        done
-    done
+#     for THREADS in 1 2 4 6 8 10 12 14 16; do
+#         echo "  Threads=$THREADS"
+#         for RUN in $(seq 1 $NRUNS); do
+#             OUT="$DATA_DIR/tmp_strong.out"
+#             case "$version" in
+#                 "v1") BINARY="$BINARY_OMP" ;;
+#                 "v2") BINARY="$BINARY_OMP_V2" ;;
+#                 "v3") BINARY="$BINARY_OMP_V3" ;;
+#                 "v4") BINARY="$BINARY_OMP_V4" ;;
+#                 *) echo "Invalid version: $version"; exit 1 ;;
+#             esac
+#             T=$( run_timed "$BINARY" "$THREADS" "$K" "$SS_INPUT" "$OUT" )
+#             echo "strong_omp,$THREADS,$SS_N,$K,$D,$MAXITER,$RUN,$T" >> "$SS_CSV"
+#             rm -f "$OUT"
+#         done
+#     done
     
-    python3 utils/plot_speedup.py "strong_omp_${version}_${SS_N}" --input "$SS_CSV"
+#     python3 utils/plot_speedup.py "strong_omp_${version}_${SS_N}" --input "$SS_CSV"
 
-    echo "  → $SS_CSV"
-done
+#     echo "  → $SS_CSV"
+# done
 # ---------------------------------------------------------------------------
 # 2. WEAK SCALING (OpenMP)
 #
@@ -196,7 +199,7 @@ echo "=== Weak Scaling (OpenMP) ==="
 
 WS_PER_THREAD=100000 # 100_000 points per thread 
 
-for version in "v1" "v2" "v3"; do
+for version in "v4"; do
     echo "  Version: $version"
     WS_CSV="$RESULTS_DIR/${version}/weak_omp.csv"
 
@@ -214,6 +217,7 @@ for version in "v1" "v2" "v3"; do
                 "v1") BINARY="$BINARY_OMP" ;;
                 "v2") BINARY="$BINARY_OMP_V2" ;;
                 "v3") BINARY="$BINARY_OMP_V3" ;;
+                "v4") BINARY="$BINARY_OMP_V4" ;;
                 *) echo "Invalid version: $version"; exit 1 ;;
             esac
             T=$( run_timed "$BINARY" "$THREADS" "$K" "$WS_INPUT" "$OUT" )
@@ -227,8 +231,41 @@ for version in "v1" "v2" "v3"; do
     echo "  → $WS_CSV"
 done
 
-# ----------------------------------------------------------------------------
 
+# ----------------------------------------------------------------------------
+echo "=== Strong Scaling (OpenMP CACHE) ==="
+SS_N=1000000          # 1_000_000
+SS_PPC=$(( SS_N / K ))
+SS_INPUT="$DATA_DIR/strong_N${SS_N}_D${D}_K${K}.txt"
+gen_input "$SS_PPC" "$D" "$K" "$SS_INPUT"
+
+for version in "v1" "v4"; do
+    echo "  Version: $version"
+    mkdir -p "$RESULTS_DIR/${version}"
+    SS_CSV="$RESULTS_DIR/${version}/strong_omp_${SS_N}.csv"
+    echo "experiment,threads,N,K,D,iters,run,elapsed" > "$SS_CSV"
+
+    for THREADS in 1 2 4 6 8 10 12 14 16; do
+        echo "  Threads=$THREADS"
+        for RUN in $(seq 1 $NRUNS); do
+            OUT="$DATA_DIR/tmp_strong.out"
+            case "$version" in
+                "v1") BINARY="$BINARY_OMP" ;;
+                "v2") BINARY="$BINARY_OMP_V2" ;;
+                "v3") BINARY="$BINARY_OMP_V3" ;;
+                "v4") BINARY="$BINARY_OMP_V4" ;;
+                *) echo "Invalid version: $version"; exit 1 ;;
+            esac
+            T=$( run_timed "$BINARY" "$THREADS" "$K" "$SS_INPUT" "$OUT" )
+            echo "strong_omp,$THREADS,$SS_N,$K,$D,$MAXITER,$RUN,$T" >> "$SS_CSV"
+            rm -f "$OUT"
+        done
+    done
+    
+    python3 utils/plot_speedup.py "strong_omp_${version}_${SS_N}" --input "$SS_CSV"
+
+    echo "  → $SS_CSV"
+done
 
 
 # # ---------------------------------------------------------------------------
