@@ -13,18 +13,11 @@
  *      Pass 2 (update):    read data[i] AGAIN to accumulate into new_centroids
  *    v4 does one pass:
  *      read data[i] once, find nearest centroid AND accumulate immediately.
- *    With -O3 and N=1M, data[] does not fit in L3 (160MB > 96MB), so every
- *    read is a DRAM access. Fusing halves the DRAM traffic per iteration.
- *    Expected gain: ~1.4-1.8x on N=1M (bandwidth-bound regime).
- *    On N=500K (fits in L3) the gain is smaller (~1.1x) since L3 reads are
- *    cheaper, but still meaningful.
  *
  * 2. PRE-ALLOCATED THREAD-PRIVATE BUFFERS
  *    local_counts and local_nc are allocated once per thread at the start
  *    of the parallel region and freed at the end. This removes 2*ITERS*P
- *    malloc/free calls from the hot loop. With -O3 malloc/free are fast
- *    but this also improves data locality: the buffers remain in the same
- *    physical cache lines across iterations (no TLB churn).
+ *    malloc/free calls from the hot loop. 
  *
  * 3. PERSISTENT PARALLEL REGION
  *    One omp parallel for all iterations. Thread-team creation cost
@@ -33,26 +26,6 @@
  *
  * 4. INLINE SIMD ACCUMULATION
  *    The D-loop inside the fused pass is decorated with #pragma omp simd.
- *    With -O3 gcc will vectorize it with AVX2 (D=40 = 5x8-wide float ops).
- *    This was not possible in v1/v3 because the accumulation was a function
- *    call (vadd) with a non-compile-time-known stride.
- *
- * Runtime environment (set BEFORE running):
- *   export OMP_PROC_BIND=close
- *   export OMP_PLACES=cores
- *   export OMP_NUM_THREADS=14     # optimal with -O3 (16 regresses due to HT)
- *
- * OMP_PROC_BIND=close:
- *   Pins thread 0 to core 0, thread 1 to core 1, etc. (closest available).
- *   Without this the OS scheduler may migrate threads mid-run, causing
- *   cache misses as a thread's working set is in the cache of a different core.
- *
- * OMP_PLACES=cores:
- *   Tells OpenMP that each "place" is one physical core (not a hardware thread).
- *   With close binding: thread k -> physical core k (no SMT sharing unless
- *   OMP_NUM_THREADS > 8). Prevents two threads sharing the same L1/L2.
- *   Combined with OMP_NUM_THREADS=14, you get 8 physical cores fully used
- *   plus 6 logical threads on the remaining SMT slots — the measured optimum.
  *
  ****************************************************************************/
 

@@ -19,14 +19,6 @@
  *
  * You should have received a copy of the GNU General Public License
  * along with this program.  If not, see <http://www.gnu.org/licenses/>.
- *
- * --------------------------------------------------------------------------
- * Compile with:
- *      gcc -std=c99 -Wall -Wpedantic -fopenmp omp-k-means.c -o omp-k-means
- *
- * Run with:
- *      OMP_NUM_THREADS=4 ./omp-k-means K input_file output_file
- *
  ****************************************************************************/
 #if _XOPEN_SOURCE < 600
 #define _XOPEN_SOURCE 600
@@ -394,8 +386,6 @@ int main( int argc, char *argv[] )
        iterations, so wall-clock time is not contaminated by dataset variance. */
 #ifdef MAX_ITER_FIXED
     const int fixed_iters = MAX_ITER_FIXED;
-    /* Suppress "unused variable" warnings: MAXITER */
-    (void)0;
 #else
     const int    MAXITER = 100;
 #endif

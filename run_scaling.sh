@@ -35,6 +35,9 @@ BINARY_OMP_V4="./omp-k-means-v4"
 BINARY_OMP_O3="./omp-k-means-o3"
 BINARY_OMP_O3_V4="./omp-k-means-o3-v4"
 BINARY_CUDA="./cuda-k-means"
+BINARY_CUDA_V2="./cuda-k-means-v2"
+BINARY_CUDA_V3="./cuda-k-means-v3"
+BINARY_CUDA_V4="./cuda-k-means-v4"
 INPUTGEN="./inputgen"
 
 RESULTS_DIR="results"
@@ -75,6 +78,22 @@ run_timed() {
 
     local elapsed
     elapsed=$( OMP_NUM_THREADS="$threads" "$bin" "$k" "$input" "$output" 2>/dev/null \
+               | grep "Elapsed time" | awk '{print $3}' )
+    echo "$elapsed"
+}
+
+run_timed_bind() {
+    local bin="$1"
+    local threads="$2"
+    local k="$3"
+    local input="$4"
+    local output="$5"
+
+    local elapsed
+    elapsed=$( OMP_NUM_THREADS="$threads" \
+               OMP_PROC_BIND=close \
+               OMP_PLACES=cores \
+               "$bin" "$k" "$input" "$output" 2>/dev/null \
                | grep "Elapsed time" | awk '{print $3}' )
     echo "$elapsed"
 }
@@ -127,25 +146,35 @@ gen_input() {
 # O3 version
 # ---------------------------------------------------------------------------
 # echo "=== initial test (OpenMP O3) ==="
-# for SS_N in 500000 1000000; do          # 3000000  500K, 1M, 3M points total        
-#     SS_PPC=$(( SS_N / K ))
-#     SS_INPUT="$DATA_DIR/strong_O3_v4_N${SS_N}_D${D}_K${K}.txt"
-#     gen_input "$SS_PPC" "$D" "$K" "$SS_INPUT"
-#     SS_CSV="$RESULTS_DIR/strong_O3_v4.csv"
-#     echo "experiment,threads,N,K,D,iters,run,elapsed" > "$SS_CSV"
-#     for THREADS in 1 2 4 6 8 10 12 14 16; do
-#         echo "  Threads=$THREADS"
-#         for RUN in $(seq 1 $NRUNS); do
-#             OUT="$DATA_DIR/tmp_strong_O3_v4.out"
-#             T=$( run_timed "$BINARY_OMP_O3_V4" "$THREADS" "$K" "$SS_INPUT" "$OUT" )
-#             echo "strong_O3_v4,$THREADS,$SS_N,$K,$D,$MAXITER,$RUN,$T" >> "$SS_CSV"
-#             rm -f "$OUT"
+# for version in "v1" "v4_bind"; do
+#     for SS_N in 500000; do          # 1000000  500K, 1M, 3M points total        
+#         SS_PPC=$(( SS_N / K ))
+#         SS_INPUT="$DATA_DIR/strong_O3_${version}_N${SS_N}_D${D}_K${K}.txt"
+#         gen_input "$SS_PPC" "$D" "$K" "$SS_INPUT"
+#         SS_CSV="$RESULTS_DIR/strong_O3_${version}.csv"
+#         echo "experiment,threads,N,K,D,iters,run,elapsed" > "$SS_CSV"
+#         case "$version" in
+#             "v1") BINARY="$BINARY_OMP_O3" ;;
+#             "v4_bind") BINARY="$BINARY_OMP_O3_V4" ;;
+#             *) echo "Invalid version: $version"; exit 1 ;;
+#         esac
+#         for THREADS in 1 2 4 6 8 10 12 14 16; do
+#             echo "  Threads=$THREADS"
+#             for RUN in $(seq 1 $NRUNS); do
+#                 OUT="$DATA_DIR/tmp_strong_O3_${version}.out"
+#                 if [ "$version" == "v4_bind" ]; then
+#                     T=$( run_timed_bind "$BINARY" "$THREADS" "$K" "$SS_INPUT" "$OUT" )
+#                 else
+#                     T=$( run_timed "$BINARY" "$THREADS" "$K" "$SS_INPUT" "$OUT" )
+#                 fi
+#                 echo "strong_O3_${version},$THREADS,$SS_N,$K,$D,$MAXITER,$RUN,$T" >> "$SS_CSV"
+#                 rm -f "$OUT"
+#             done
 #         done
+#         python3 utils/plot_speedup.py "strong_O3_${version}_${SS_N}" --input "$SS_CSV"
+#         echo "  → $SS_CSV"
 #     done
-#     python3 utils/plot_speedup.py "strong_O3_v4_${SS_N}" --input "$SS_CSV"
-#     echo "  → $SS_CSV"
 # done
-
 
 # ---------------------------------------------------------------------------
 # 1. STRONG SCALING (OpenMP)
@@ -160,7 +189,7 @@ gen_input() {
 # SS_INPUT="$DATA_DIR/strong_N${SS_N}_D${D}_K${K}.txt"
 # gen_input "$SS_PPC" "$D" "$K" "$SS_INPUT"
 
-# for version in "v4"; do
+# for version in "v4_bind"; do
 #     echo "  Version: $version"
 #     mkdir -p "$RESULTS_DIR/${version}"
 #     SS_CSV="$RESULTS_DIR/${version}/strong_omp.csv"
@@ -172,12 +201,14 @@ gen_input() {
 #             OUT="$DATA_DIR/tmp_strong.out"
 #             case "$version" in
 #                 "v1") BINARY="$BINARY_OMP" ;;
+#                 "v1_bind") BINARY="$BINARY_OMP" ;;
 #                 "v2") BINARY="$BINARY_OMP_V2" ;;
 #                 "v3") BINARY="$BINARY_OMP_V3" ;;
 #                 "v4") BINARY="$BINARY_OMP_V4" ;;
+#                 "v4_bind") BINARY="$BINARY_OMP_V4" ;;
 #                 *) echo "Invalid version: $version"; exit 1 ;;
 #             esac
-#             T=$( run_timed "$BINARY" "$THREADS" "$K" "$SS_INPUT" "$OUT" )
+#             T=$( run_timed_bind "$BINARY" "$THREADS" "$K" "$SS_INPUT" "$OUT" )
 #             echo "strong_omp,$THREADS,$SS_N,$K,$D,$MAXITER,$RUN,$T" >> "$SS_CSV"
 #             rm -f "$OUT"
 #         done
@@ -195,124 +226,178 @@ gen_input() {
 # Per-thread work: N_per_thread = 250000 points.
 # Total N = N_per_thread * threads.
 # ---------------------------------------------------------------------------
-echo "=== Weak Scaling (OpenMP) ==="
+# echo "=== Weak Scaling (OpenMP) ==="
 
-WS_PER_THREAD=100000 # 100_000 points per thread 
+# WS_PER_THREAD=100000 # 100_000 points per thread 
 
-for version in "v4"; do
-    echo "  Version: $version"
-    WS_CSV="$RESULTS_DIR/${version}/weak_omp.csv"
+# for version in "v4_bind"; do
+#     echo "  Version: $version"
+#     WS_CSV="$RESULTS_DIR/${version}/weak_omp.csv"
 
-    echo "experiment,threads,N,K,D,iters,run,elapsed" > "$WS_CSV"
-    for THREADS in 1 2 4 6 8 10 12 14 16; do
-        WS_N=$(( WS_PER_THREAD * THREADS ))
-        WS_PPC=$(( WS_N / K ))
-        WS_INPUT="$DATA_DIR/weak_N${WS_N}_D${D}_K${K}.txt"
-        gen_input "$WS_PPC" "$D" "$K" "$WS_INPUT"
+#     echo "experiment,threads,N,K,D,iters,run,elapsed" > "$WS_CSV"
+#     for THREADS in 1 2 4 6 8 10 12 14 16; do
+#         WS_N=$(( WS_PER_THREAD * THREADS ))
+#         WS_PPC=$(( WS_N / K ))
+#         WS_INPUT="$DATA_DIR/weak_N${WS_N}_D${D}_K${K}.txt"
+#         gen_input "$WS_PPC" "$D" "$K" "$WS_INPUT"
 
-        echo "  Threads=$THREADS, N=$WS_N"
-        for RUN in $(seq 1 $NRUNS); do
-            OUT="$DATA_DIR/tmp_weak.out"
-            case "$version" in
-                "v1") BINARY="$BINARY_OMP" ;;
-                "v2") BINARY="$BINARY_OMP_V2" ;;
-                "v3") BINARY="$BINARY_OMP_V3" ;;
-                "v4") BINARY="$BINARY_OMP_V4" ;;
-                *) echo "Invalid version: $version"; exit 1 ;;
-            esac
-            T=$( run_timed "$BINARY" "$THREADS" "$K" "$WS_INPUT" "$OUT" )
-            echo "weak_omp,$THREADS,$WS_N,$K,$D,$MAXITER,$RUN,$T" >> "$WS_CSV"
-            rm -f "$OUT"
-        done
-    done
+#         echo "  Threads=$THREADS, N=$WS_N"
+#         for RUN in $(seq 1 $NRUNS); do
+#             OUT="$DATA_DIR/tmp_weak.out"
+#             case "$version" in
+#                 "v1") BINARY="$BINARY_OMP" ;;
+#                 "v1_bind") BINARY="$BINARY_OMP" ;;
+#                 "v2") BINARY="$BINARY_OMP_V2" ;;
+#                 "v3") BINARY="$BINARY_OMP_V3" ;;
+#                 "v4") BINARY="$BINARY_OMP_V4" ;;
+#                 "v4_bind") BINARY="$BINARY_OMP_V4" ;;
+#                 *) echo "Invalid version: $version"; exit 1 ;;
+#             esac
+#             T=$( run_timed_bind "$BINARY" "$THREADS" "$K" "$WS_INPUT" "$OUT" )
+#             echo "weak_omp,$THREADS,$WS_N,$K,$D,$MAXITER,$RUN,$T" >> "$WS_CSV"
+#             rm -f "$OUT"
+#         done
+#     done
 
-    python3 utils/plot_weak_scaling.py "weak_omp_${version}_${WS_N}" --input "$WS_CSV"
+#     python3 utils/plot_weak_scaling.py "weak_omp_${version}_${WS_N}" --input "$WS_CSV"
 
-    echo "  → $WS_CSV"
-done
+#     echo "  → $WS_CSV"
+# done
 
 
 # ----------------------------------------------------------------------------
-echo "=== Strong Scaling (OpenMP CACHE) ==="
-SS_N=1000000          # 1_000_000
-SS_PPC=$(( SS_N / K ))
-SS_INPUT="$DATA_DIR/strong_N${SS_N}_D${D}_K${K}.txt"
-gen_input "$SS_PPC" "$D" "$K" "$SS_INPUT"
+# NEL CASO v1_bind PERFORMI PEGGIO DI v4, FAI IL TEST CON 1M e verifica cache usando v1 senza bind
+# echo "=== Strong Scaling (OpenMP CACHE) ==="
+# SS_N=1000000          # 1_000_000
+# SS_PPC=$(( SS_N / K ))
+# SS_INPUT="$DATA_DIR/strong_N${SS_N}_D${D}_K${K}.txt"
+# gen_input "$SS_PPC" "$D" "$K" "$SS_INPUT"
 
-for version in "v1" "v4"; do
-    echo "  Version: $version"
-    mkdir -p "$RESULTS_DIR/${version}"
-    SS_CSV="$RESULTS_DIR/${version}/strong_omp_${SS_N}.csv"
-    echo "experiment,threads,N,K,D,iters,run,elapsed" > "$SS_CSV"
+# for version in "v1" "v4" "v4_bind"; do
+#     echo "  Version: $version"
+#     mkdir -p "$RESULTS_DIR/${version}"
+#     SS_CSV="$RESULTS_DIR/${version}/strong_omp_${SS_N}.csv"
+#     echo "experiment,threads,N,K,D,iters,run,elapsed" > "$SS_CSV"
 
-    for THREADS in 1 2 4 6 8 10 12 14 16; do
-        echo "  Threads=$THREADS"
-        for RUN in $(seq 1 $NRUNS); do
-            OUT="$DATA_DIR/tmp_strong.out"
-            case "$version" in
-                "v1") BINARY="$BINARY_OMP" ;;
-                "v2") BINARY="$BINARY_OMP_V2" ;;
-                "v3") BINARY="$BINARY_OMP_V3" ;;
-                "v4") BINARY="$BINARY_OMP_V4" ;;
-                *) echo "Invalid version: $version"; exit 1 ;;
-            esac
-            T=$( run_timed "$BINARY" "$THREADS" "$K" "$SS_INPUT" "$OUT" )
-            echo "strong_omp,$THREADS,$SS_N,$K,$D,$MAXITER,$RUN,$T" >> "$SS_CSV"
-            rm -f "$OUT"
-        done
-    done
-    
-    python3 utils/plot_speedup.py "strong_omp_${version}_${SS_N}" --input "$SS_CSV"
-
-    echo "  → $SS_CSV"
-done
-
-
-# # ---------------------------------------------------------------------------
-# # 3. CUDA BASELINE
-# #
-# # Run cuda-k-means with the same inputs used in strong scaling,
-# # plus varying N to study GPU throughput.
-# # Compare against OMP with 1, 8, and 16 threads for the same N.
-# # ---------------------------------------------------------------------------
-# echo "=== CUDA Baseline ==="
-
-# CUDA_CSV="$RESULTS_DIR/cuda_baseline.csv"
-# echo "experiment,N,K,D,iters,run,elapsed" > "$CUDA_CSV"
-
-# for CUDA_N in 500000 1000000 2000000 4000000 8000000; do
-#     CUDA_PPC=$(( CUDA_N / K ))
-#     CUDA_INPUT="$DATA_DIR/cuda_N${CUDA_N}_D${D}_K${K}.txt"
-#     gen_input "$CUDA_PPC" "$D" "$K" "$CUDA_INPUT"
-
-#     echo "  CUDA N=$CUDA_N"
-#     for RUN in $(seq 1 $NRUNS); do
-#         OUT="$DATA_DIR/tmp_cuda.out"
-#         T=$( OMP_NUM_THREADS=1 "$BINARY_CUDA" "$K" "$CUDA_INPUT" "$OUT" 2>/dev/null \
-#              | grep "Elapsed time" | awk '{print $3}' )
-#         echo "cuda_baseline,$CUDA_N,$K,$D,$MAXITER,$RUN,$T" >> "$CUDA_CSV"
-#         rm -f "$OUT"
+#     for THREADS in 1 2 4 6 8 10 12 14 16; do
+#         echo "  Threads=$THREADS"
+#         for RUN in $(seq 1 $NRUNS); do
+#             OUT="$DATA_DIR/tmp_strong.out"
+#             case "$version" in
+#                 "v1") BINARY="$BINARY_OMP" ;;
+#                 "v2") BINARY="$BINARY_OMP_V2" ;;
+#                 "v3") BINARY="$BINARY_OMP_V3" ;;
+#                 "v4") BINARY="$BINARY_OMP_V4" ;;
+#                 "v4_bind") BINARY="$BINARY_OMP_V4" ;;
+#                 *) echo "Invalid version: $version"; exit 1 ;;
+#             esac
+#             if [ "$version" == "v4_bind" ]; then
+#                 T=$( run_timed_bind "$BINARY" "$THREADS" "$K" "$SS_INPUT" "$OUT" )
+#             else
+#                 T=$( run_timed "$BINARY" "$THREADS" "$K" "$SS_INPUT" "$OUT" )
+#             fi
+#             echo "strong_omp,$THREADS,$SS_N,$K,$D,$MAXITER,$RUN,$T" >> "$SS_CSV"
+#             rm -f "$OUT"
+#         done
 #     done
+    
+#     python3 utils/plot_speedup.py "strong_omp_${version}_${SS_N}" --input "$SS_CSV"
+
+#     echo "  → $SS_CSV"
 # done
 
-# echo "  → $CUDA_CSV"
 
-# # ---------------------------------------------------------------------------
-# # 4. CACHE STUDY (OpenMP, 8 threads)
-# #
-# # test_v2s data sizes that fit in different cache levels of the CPU.
-# # Goal: observe cache effects on omp-k-means throughput.
-# #
-# # CPU cache sizes (Ryzen 7 7800X3D):
-# #   L2 per core: 1 MB → ~262K floats. N=200K fits if K and D are small.
-# #   L3 shared:  96 MB → ~25M floats. N*D floats: N=3M, D=8 → 24MB ≈ L3.
-# #   Overflow:  N=10M → 80MB > L3 → guaranteed cache miss pressure.
-# #
-# # data[] size = N * D * 4 bytes:
-# #   L2  (1 MB/core):  N=32768  → 32768*8*4 = 1.0 MB (single core L2)
-# #   L3  (96 MB):      N=3000000 → 3M*8*4 = 96 MB ≈ full L3
-# #   RAM overflow:     N=10000000 → 10M*8*4 = 320 MB > L3
-# # ---------------------------------------------------------------------------
+# ---------------------------------------------------------------------------
+# 3. CUDA BASELINE
+#
+# Run cuda-k-means with the same inputs used in strong scaling,
+# plus varying N to study GPU throughput.
+# Compare against OMP with 1, 8, and 16 threads for the same N.
+# ---------------------------------------------------------------------------
+# Cuda v3 con N multipli di grid size N = 522_240 1_044_480 2_088_960
+# ---------------------------------------------------------------------------
+# echo "=== CUDA OPTIMUM ==="
+
+# D=40
+# for version in "v3"; do
+#     echo "  Version: $version"
+#     CUDA_CSV="$RESULTS_DIR/cuda/cuda_${version}_optimum.csv"
+#     # echo "experiment,N,K,D,iters,run,elapsed" > "$CUDA_CSV"
+#     case "$version" in
+#         "v1") BINARY="$BINARY_CUDA" ;;
+#         "v2") BINARY="$BINARY_CUDA_V2" ;;
+#         "v3") BINARY="$BINARY_CUDA_V3" ;;
+#         "v4") BINARY="$BINARY_CUDA_V4" ;;
+#         *) echo "Invalid version: $version"; exit 1 ;;
+#     esac
+#     for CUDA_N in 4177920 8355840; do
+#         CUDA_PPC=$(( CUDA_N / K ))
+#         CUDA_INPUT="$DATA_DIR/cuda_N${CUDA_N}_D${D}_K${K}.txt"
+#         gen_input "$CUDA_PPC" "$D" "$K" "$CUDA_INPUT"
+
+#         echo "  CUDA N=$CUDA_N"
+#         for RUN in $(seq 1 $NRUNS); do
+#             OUT="$DATA_DIR/tmp_cuda.out"
+#             T=$( "$BINARY" "$K" "$CUDA_INPUT" "$OUT" 2>/dev/null \
+#                 | grep "Elapsed time" | awk '{print $3}' )
+#             echo "cuda_${version},$CUDA_N,$K,$D,$MAXITER,$RUN,$T" >> "$CUDA_CSV"
+#             rm -f "$OUT"
+#         done
+#     done
+#     echo "  → $CUDA_CSV"
+# done
+
+
+
+
+# echo "=== CUDA D = 500  ==="
+
+# # Cuda v2 vs v3 con D =  500  N = 500_000, 1M, 1.5M 
+# D=500
+# for version in "v2" "v3"; do
+#     echo "  Version: $version"
+#     CUDA_CSV="$RESULTS_DIR/cuda/cuda_${version}_${D}.csv"
+#     echo "experiment,N,K,D,iters,run,elapsed" > "$CUDA_CSV"
+#     case "$version" in
+#         "v1") BINARY="$BINARY_CUDA" ;;
+#         "v2") BINARY="$BINARY_CUDA_V2" ;;
+#         "v3") BINARY="$BINARY_CUDA_V3" ;;
+#         "v4") BINARY="$BINARY_CUDA_V4" ;;
+#         *) echo "Invalid version: $version"; exit 1 ;;
+#     esac
+#     for CUDA_N in 500000 1000000 1500000; do
+#         CUDA_PPC=$(( CUDA_N / K ))
+#         CUDA_INPUT="$DATA_DIR/cuda_N${CUDA_N}_D${D}_K${K}.txt"
+#         gen_input "$CUDA_PPC" "$D" "$K" "$CUDA_INPUT"
+
+#         echo "  CUDA N=$CUDA_N"
+#         for RUN in $(seq 1 $NRUNS); do
+#             OUT="$DATA_DIR/tmp_cuda.out"
+#             T=$( "$BINARY" "$K" "$CUDA_INPUT" "$OUT" 2>/dev/null \
+#                 | grep "Elapsed time" | awk '{print $3}' )
+#             echo "cuda_${version},$CUDA_N,$K,$D,$MAXITER,$RUN,$T" >> "$CUDA_CSV"
+#             rm -f "$OUT"
+#         done
+#     done
+#     echo "  → $CUDA_CSV"
+# done
+
+# ---------------------------------------------------------------------------
+# 4. CACHE STUDY (OpenMP, 8 threads)
+#
+# test_v2s data sizes that fit in different cache levels of the CPU.
+# Goal: observe cache effects on omp-k-means throughput.
+#
+# CPU cache sizes (Ryzen 7 7800X3D):
+#   L2 per core: 1 MB → ~262K floats. N=200K fits if K and D are small.
+#   L3 shared:  96 MB → ~25M floats. N*D floats: N=3M, D=8 → 24MB ≈ L3.
+#   Overflow:  N=10M → 80MB > L3 → guaranteed cache miss pressure.
+#
+# data[] size = N * D * 4 bytes:
+#   L2  (1 MB/core):  N=32768  → 32768*8*4 = 1.0 MB (single core L2)
+#   L3  (96 MB):      N=3000000 → 3M*8*4 = 96 MB ≈ full L3
+#   RAM overflow:     N=10000000 → 10M*8*4 = 320 MB > L3
+# ---------------------------------------------------------------------------
 # echo "=== Cache Study (OpenMP, 8 threads) ==="
 
 # CACHE_CSV="$RESULTS_DIR/cache_study_omp.csv"
@@ -342,30 +427,7 @@ done
 
 # echo "  → $CACHE_CSV"
 
-# # ---------------------------------------------------------------------------
-# # 5. HYPERTHREADING STUDY
-# #
-# # Explicitly compare 8 physical cores vs 16 logical (SMT) threads
-# # on the same problem size (strong scaling N).
-# # Results are already in strong_omp.csv for threads=8 and threads=16.
-# # This section adds an explicit note in a dedicated CSV for clarity.
-# # ---------------------------------------------------------------------------
-# echo "=== Hyperthreading Study (subset of strong scaling) ==="
-
-# HT_CSV="$RESULTS_DIR/hyperthreading_omp.csv"
-# echo "experiment,threads,N,K,D,iters,run,elapsed" > "$HT_CSV"
-
-# for THREADS in 8 16; do
-#     echo "  HT threads=$THREADS"
-#     for RUN in $(seq 1 $NRUNS); do
-#         OUT="$DATA_DIR/tmp_ht.out"
-#         T=$( run_timed "$BINARY_OMP" "$THREADS" "$K" "$SS_INPUT" "$OUT" )
-#         echo "hyperthreading,$THREADS,$SS_N,$K,$D,$MAXITER,$RUN,$T" >> "$HT_CSV"
-#         rm -f "$OUT"
-#     done
-# done
-
-# echo "  → $HT_CSV"
+#----------------------------------------------------------------------------
 
 # ---------------------------------------------------------------------------
 # Done
