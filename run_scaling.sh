@@ -57,12 +57,12 @@ D=40
 MAXITER=150
 
 # Check that binaries exist.
-for bin in "$BINARY_OMP" "$BINARY_OMP_V2" "$BINARY_OMP_V3" "$BINARY_CUDA" "$INPUTGEN"; do
-    if [ ! -x "$bin" ]; then
-        echo "ERROR: $bin not found or not executable. Run 'make' first."
-        exit 1
-    fi
-done
+# for bin in "$BINARY_OMP" "$BINARY_OMP_V2" "$BINARY_OMP_V3" "$BINARY_CUDA" "$INPUTGEN"; do
+#     if [ ! -x "$bin" ]; then
+#         echo "ERROR: $bin not found or not executable. Run 'make' first."
+#         exit 1
+#     fi
+# done
 
 # ---------------------------------------------------------------------------
 # Helper: run a single timing experiment and extract elapsed seconds.
@@ -354,8 +354,6 @@ gen_input() {
 
 # VS cuda v2 40
 
-D = 40
-K = 8
 for version in "omp_v4_o3" "omp_v4"; do
     echo "  Version: $version"
     CUDA_CSV="$RESULTS_DIR/cuda_vs_omp/${version}.csv"
@@ -377,8 +375,7 @@ for version in "omp_v4_o3" "omp_v4"; do
         echo "  N=$CUDA_N"
         for RUN in $(seq 1 $NRUNS); do
             OUT="$DATA_DIR/tmp_cuda.out"
-            T=$( run_timed "$BINARY" "16" "$K" "$CUDA_INPUT" "$OUT" 2>/dev/null \
-                | grep "Elapsed time" | awk '{print $3}')
+            T=$( run_timed "$BINARY" "16" "$K" "$CUDA_INPUT" "$OUT")
             echo "cuda_${version},$CUDA_N,$K,$D,$MAXITER,$RUN,$T" >> "$CUDA_CSV"
             rm -f "$OUT"
         done
