@@ -56,7 +56,8 @@ void vcopy( float *p1, const float *p2 ) {
 float sqdist( float *p1, float *p2 ) {
     float result = 0.0;
     for (int d=0; d<n_dims; d++) {
-        result += (p1[d] - p2[d])*(p1[d] - p2[d]);
+        float diff = p1[d] - p2[d];
+        result += diff * diff;
     }
     return result;
 }
@@ -94,6 +95,7 @@ void read_input( FILE *f ) {
     int n_items = 0;
     float dummy;
     while (1 == fscanf(f, "%f", &dummy)) n_items++;
+    printf("Read %d items, inferred %d dimensions\n", n_items, n_dims);
     assert(n_items % n_dims == 0);
     n_points = n_items / n_dims;
     data = (float*)safe_malloc(n_points * n_dims * sizeof(*data));
@@ -197,9 +199,7 @@ __global__ void kmeans_classify_and_reduce_kernel(
 
     // Phase 3: Commit block-local results to Global Memory
     for (int idx = tid; idx < K * D; idx += blockDim.x) {
-        if (s_new_centroids[idx] != 0.0f) {
-            atomicAdd(&new_centroids[idx], s_new_centroids[idx]);
-        }
+        atomicAdd(&new_centroids[idx], s_new_centroids[idx]);
     }
     for (int idx = tid; idx < K; idx += blockDim.x) {
         if (s_counts[idx] > 0) {
@@ -290,6 +290,17 @@ int main( int argc, char *argv[] )
     // Block and Grid setup
     dim3 block(BLKDIM);
     dim3 grid((n_points + block.x - 1) / block.x);
+
+    // The following code is useful only if we want to use more Shared Memory than the default limit (48KB on most GPUs).
+    // In our case, with K=8 and D=40, we need 2*8*40*4 + 8*4 = 2560 + 32 = 2592 bytes, which is well below the limit.
+    // However I left it because I ruuned some tests with larger D and if someone want to run the code  with larger D or K 
+    // it can be useful to increase the Shared Memory limit.
+    // Surpass the limit of 48KB of Shared Memory (4060 Ti can reach up to 100KB)
+    // CHECK_CUDA(cudaFuncSetAttribute(
+    //     kmeans_classify_and_reduce_kernel,
+    //     cudaFuncAttributeMaxDynamicSharedMemorySize,
+    //     shared_mem_size
+    // ));
 
     printf("Grid Size: %d blocks, Block Size: %d threads\n", grid.x, block.x);
     printf("Shared Memory per block: %zu bytes\n", shared_mem_size);

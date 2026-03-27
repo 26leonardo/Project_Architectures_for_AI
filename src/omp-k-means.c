@@ -87,7 +87,7 @@ void vzero( float *p )
    have size `n_dims`. */
 void vadd( float *p1, const float *p2 )
 {
-    #pragma omp simd
+    // #pragma omp simd
     for (int d=0; d<n_dims; d++)
         p1[d] += p2[d];
 }
@@ -95,7 +95,7 @@ void vadd( float *p1, const float *p2 )
 /* Multiply each element of vector `p` of size `n_dims` by `v`. */
 void vmul( float *p, float v )
 {
-    #pragma omp simd
+    // #pragma omp simd
     for (int d=0; d<n_dims; d++)
         p[d] *= v;
 }
@@ -103,7 +103,7 @@ void vmul( float *p, float v )
 /* Copy `p2` into `p1`. */
 void vcopy( float *p1, const float *p2 )
 {
-    #pragma omp simd
+    // #pragma omp simd
     for (int d=0; d<n_dims; d++)
         p1[d] = p2[d];
 }
@@ -112,7 +112,7 @@ void vcopy( float *p1, const float *p2 )
 float sqdist(const float *p1, const float *p2)
 {
     float result = 0.0f;
-    #pragma omp simd reduction(+:result)
+    // #pragma omp simd reduction(+:result)
     for (int d = 0; d < n_dims; d++) {
         const float diff = p1[d] - p2[d];
         result += diff * diff;

@@ -89,12 +89,17 @@ run_timed_bind() {
     local input="$4"
     local output="$5"
 
-    local elapsed
-    elapsed=$( OMP_NUM_THREADS="$threads" \
+    local run_output
+    run_output=$( OMP_NUM_THREADS="$threads" \
                OMP_PROC_BIND=close \
-               OMP_PLACES=cores \
-               "$bin" "$k" "$input" "$output" 2>/dev/null \
-               | grep "Elapsed time" | awk '{print $3}' )
+               OMP_PLACES=threads \
+               "$bin" "$k" "$input" "$output" 2>&1 )
+
+    # Show the process binding and places information if the program prints it
+    echo "$run_output" | grep -E "Proc bind|Places" || true
+
+    local elapsed
+    elapsed=$( echo "$run_output" | grep "Elapsed time" | awk '{print $3}' )
     echo "$elapsed"
 }
 
@@ -145,33 +150,33 @@ gen_input() {
 #---------------------------------------------------------------------------
 # O3 version
 # ---------------------------------------------------------------------------
-# echo "=== initial test (OpenMP O3) ==="
-# for version in "v1" "v4_bind"; do
+# echo "=== Controlla versus v4  ==="
+# for version in "v4_enanced"; do
 #     for SS_N in 500000; do          # 1000000  500K, 1M, 3M points total        
 #         SS_PPC=$(( SS_N / K ))
-#         SS_INPUT="$DATA_DIR/strong_O3_${version}_N${SS_N}_D${D}_K${K}.txt"
+#         SS_INPUT="$DATA_DIR/strong_O3_v4_bind_N${SS_N}_D${D}_K${K}.txt"
 #         gen_input "$SS_PPC" "$D" "$K" "$SS_INPUT"
-#         SS_CSV="$RESULTS_DIR/strong_O3_${version}.csv"
+#         SS_CSV="$RESULTS_DIR/OMP/strong_enanced_${version}.csv"
 #         echo "experiment,threads,N,K,D,iters,run,elapsed" > "$SS_CSV"
 #         case "$version" in
-#             "v1") BINARY="$BINARY_OMP_O3" ;;
-#             "v4_bind") BINARY="$BINARY_OMP_O3_V4" ;;
+#             "v1") BINARY="$BINARY_OMP" ;;
+#             "v4_enanced") BINARY="$BINARY_OMP_V4" ;;
 #             *) echo "Invalid version: $version"; exit 1 ;;
 #         esac
 #         for THREADS in 1 2 4 6 8 10 12 14 16; do
 #             echo "  Threads=$THREADS"
 #             for RUN in $(seq 1 $NRUNS); do
-#                 OUT="$DATA_DIR/tmp_strong_O3_${version}.out"
+#                 OUT="$DATA_DIR/tmp_strong_enanced_${version}.out"
 #                 if [ "$version" == "v4_bind" ]; then
 #                     T=$( run_timed_bind "$BINARY" "$THREADS" "$K" "$SS_INPUT" "$OUT" )
 #                 else
 #                     T=$( run_timed "$BINARY" "$THREADS" "$K" "$SS_INPUT" "$OUT" )
 #                 fi
-#                 echo "strong_O3_${version},$THREADS,$SS_N,$K,$D,$MAXITER,$RUN,$T" >> "$SS_CSV"
+#                 echo "strong_enanced_${version},$THREADS,$SS_N,$K,$D,$MAXITER,$RUN,$T" >> "$SS_CSV"
 #                 rm -f "$OUT"
 #             done
 #         done
-#         python3 utils/plot_speedup.py "strong_O3_${version}_${SS_N}" --input "$SS_CSV"
+#         python3 utils/plot_speedup.py "strong_enanced_${version}_${SS_N}" --input "$SS_CSV"
 #         echo "  → $SS_CSV"
 #     done
 # done
@@ -330,7 +335,7 @@ gen_input() {
 #         "v4") BINARY="$BINARY_CUDA_V4" ;;
 #         *) echo "Invalid version: $version"; exit 1 ;;
 #     esac
-#     for CUDA_N in 4177920 8355840; do
+#     for CUDA_N in 522240 1044480 2088960 4177920 8355840; do
 #         CUDA_PPC=$(( CUDA_N / K ))
 #         CUDA_INPUT="$DATA_DIR/cuda_N${CUDA_N}_D${D}_K${K}.txt"
 #         gen_input "$CUDA_PPC" "$D" "$K" "$CUDA_INPUT"
@@ -347,40 +352,39 @@ gen_input() {
 #     echo "  → $CUDA_CSV"
 # done
 
+# VS cuda v2 40
 
+D = 40
+K = 8
+for version in "omp_v4_o3" "omp_v4"; do
+    echo "  Version: $version"
+    CUDA_CSV="$RESULTS_DIR/cuda_vs_omp/${version}.csv"
+    echo "experiment,N,K,D,iters,run,elapsed" > "$CUDA_CSV"
+    case "$version" in
+        "v1") BINARY="$BINARY_CUDA" ;;
+        "v2") BINARY="$BINARY_CUDA_V2" ;;
+        "v3") BINARY="$BINARY_CUDA_V3" ;;
+        "v4") BINARY="$BINARY_CUDA_V4" ;;
+        "omp_v4") BINARY="$BINARY_OMP_V4" ;;
+        "omp_v4_o3") BINARY="$BINARY_OMP_O3_V4" ;;
+        *) echo "Invalid version: $version"; exit 1 ;;
+    esac
+    for CUDA_N in 500000 1000000 2000000 4000000 8000000; do
+        CUDA_PPC=$(( CUDA_N / K ))
+        CUDA_INPUT="$DATA_DIR/cuda_N${CUDA_N}_D${D}_K${K}.txt"
+        gen_input "$CUDA_PPC" "$D" "$K" "$CUDA_INPUT"
 
-
-# echo "=== CUDA D = 500  ==="
-
-# # Cuda v2 vs v3 con D =  500  N = 500_000, 1M, 1.5M 
-# D=500
-# for version in "v2" "v3"; do
-#     echo "  Version: $version"
-#     CUDA_CSV="$RESULTS_DIR/cuda/cuda_${version}_${D}.csv"
-#     echo "experiment,N,K,D,iters,run,elapsed" > "$CUDA_CSV"
-#     case "$version" in
-#         "v1") BINARY="$BINARY_CUDA" ;;
-#         "v2") BINARY="$BINARY_CUDA_V2" ;;
-#         "v3") BINARY="$BINARY_CUDA_V3" ;;
-#         "v4") BINARY="$BINARY_CUDA_V4" ;;
-#         *) echo "Invalid version: $version"; exit 1 ;;
-#     esac
-#     for CUDA_N in 500000 1000000 1500000; do
-#         CUDA_PPC=$(( CUDA_N / K ))
-#         CUDA_INPUT="$DATA_DIR/cuda_N${CUDA_N}_D${D}_K${K}.txt"
-#         gen_input "$CUDA_PPC" "$D" "$K" "$CUDA_INPUT"
-
-#         echo "  CUDA N=$CUDA_N"
-#         for RUN in $(seq 1 $NRUNS); do
-#             OUT="$DATA_DIR/tmp_cuda.out"
-#             T=$( "$BINARY" "$K" "$CUDA_INPUT" "$OUT" 2>/dev/null \
-#                 | grep "Elapsed time" | awk '{print $3}' )
-#             echo "cuda_${version},$CUDA_N,$K,$D,$MAXITER,$RUN,$T" >> "$CUDA_CSV"
-#             rm -f "$OUT"
-#         done
-#     done
-#     echo "  → $CUDA_CSV"
-# done
+        echo "  N=$CUDA_N"
+        for RUN in $(seq 1 $NRUNS); do
+            OUT="$DATA_DIR/tmp_cuda.out"
+            T=$( run_timed "$BINARY" "16" "$K" "$CUDA_INPUT" "$OUT" 2>/dev/null \
+                | grep "Elapsed time" | awk '{print $3}')
+            echo "cuda_${version},$CUDA_N,$K,$D,$MAXITER,$RUN,$T" >> "$CUDA_CSV"
+            rm -f "$OUT"
+        done
+    done
+    echo "  → $CUDA_CSV"
+done
 
 # ---------------------------------------------------------------------------
 # 4. CACHE STUDY (OpenMP, 8 threads)
