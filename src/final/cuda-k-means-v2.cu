@@ -1,3 +1,46 @@
+/****************************************************************************
+ *
+ * cuda-k-means.c -- CUDA parallelization of the K-Means clustering algorithm.
+ *
+ * Based on k-means.c by Moreno Marzolla
+ * <https://unibo.it/sitoweb/moreno.marzolla/>
+ *
+ * Parallelization by: Leonardo Billi
+ *
+ * This program is free software: you can redistribute it and/or modify
+ * it under the terms of the GNU General Public License as published by
+ * the Free Software Foundation, either version 3 of the License, or
+ * (at your option) any later version.
+ *
+ * This program is distributed in the hope that it will be useful,
+ * but WITHOUT ANY WARRANTY; without even the implied warranty of
+ * MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
+ * GNU General Public License for more details.
+ *
+ * You should have received a copy of the GNU General Public License
+ * along with this program.  If not, see <http://www.gnu.org/licenses/>.
+ ****************************************************************************
+ * K-Means clustering algorithm implemented in CUDA.
+ * compile with: nvcc -DMAX_ITER_FIXED=150 -o cuda-k-means cuda-k-means.cu
+ * run with: ./cuda-k-means K input_file output_file
+ *
+ * This implementation uses a single CUDA kernel to perform both the 
+ * classification of points and the accumulation of new centroids in 
+ * shared memory, followed by atomic updates to global memory. 
+ * The main loop runs for a fixed number of iterations (150 by default) 
+ * to ensure consistent timing measurements.
+ * Another optimization is the transposition of the input data to enable 
+ * coalesced memory access in the kernel.
+ * 
+ * In general we assume K and D are small, so we do parallelization 
+ * over N (the largest dimension).
+ ****************************************************************************/
+
+ /*
+I chose to comment only the part of the code that is different from the 
+base version given in virtuale to avoid redundancy. 
+*/
+
 #if _XOPEN_SOURCE < 600
 #define _XOPEN_SOURCE 600
 #endif
@@ -6,7 +49,7 @@
 #include <stdio.h>
 #include <stdlib.h>
 #include <assert.h>
-#include <cuda_runtime.h>
+#include <cuda_runtime.h>   /* CUDA runtime support */
 
 #define BLKDIM 256
 
@@ -21,14 +64,14 @@ int *counts;
 int *cluster_of;
 
 /* Utility function to check CUDA errors */
-#define CHECK_CUDA(call)                                                \
-{                                                                       \
-    cudaError_t err = call;                                             \
-    if (err != cudaSuccess) {                                           \
-        fprintf(stderr, "CUDA error at %s:%d - %s\n",                   \
-                __FILE__, __LINE__, cudaGetErrorString(err));           \
-        exit(EXIT_FAILURE);                                             \
-    }                                                                   \
+#define CHECK_CUDA(call)                                              
+{                                                                     
+    cudaError_t err = call;                                           
+    if (err != cudaSuccess) {                                         
+        fprintf(stderr, "CUDA error at %s:%d - %s\n",                 
+                __FILE__, __LINE__, cudaGetErrorString(err));         
+        exit(EXIT_FAILURE);                                           
+    }                                                                   
 }
 
 void *safe_malloc(size_t size) {

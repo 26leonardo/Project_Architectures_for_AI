@@ -30,7 +30,7 @@
  * Optimizations over v1/v2/v3:
  *
  * 1. FUSED CLASSIFY + ACCUMULATE (main speedup)
- *    v1-v3 do two separate passes over data[]:
+ *    v1-v3 did two separate passes over data[]:
  *      Pass 1 (classify):  read data[i] to find nearest centroid
  *      Pass 2 (update):    read data[i] AGAIN to accumulate into new_centroids
  *    v4 does one pass:
@@ -63,7 +63,7 @@ base version given in virtuale to avoid redundancy.
 #include <stdlib.h>
 #include <string.h>    /* memset */
 #include <assert.h>
-#include <omp.h>
+#include <omp.h>       /* OpenMP support */
 
 /**************************************************************************
  **  Global variables 
