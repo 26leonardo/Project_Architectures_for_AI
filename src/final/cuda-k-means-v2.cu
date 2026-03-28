@@ -21,8 +21,10 @@
  * along with this program.  If not, see <http://www.gnu.org/licenses/>.
  ****************************************************************************
  * K-Means clustering algorithm implemented in CUDA.
- * compile with: nvcc -DMAX_ITER_FIXED=150 -o cuda-k-means cuda-k-means.cu
- * run with: ./cuda-k-means K input_file output_file
+ * compile with: 
+ *  nvcc -DMAX_ITER_FIXED=150 -o cuda-k-means cuda-k-means.cu
+ * run with: 
+ *  ./cuda-k-means K input_file output_file
  *
  * This implementation uses a single CUDA kernel to perform both the 
  * classification of points and the accumulation of new centroids in 
@@ -51,7 +53,15 @@ base version given in virtuale to avoid redundancy.
 #include <assert.h>
 #include <cuda_runtime.h>   /* CUDA runtime support */
 
-#define BLKDIM 256
+
+/**************************************************************************
+ **  Global variables 
+ **************************************************************************/
+
+ /*blocks like 256 threads provide better resource 
+   sharing and more active warps (8) to keep the 
+   execution units busy.*/
+#define BLKDIM 256   
 
 int n_dims;
 int n_points;
@@ -63,15 +73,19 @@ float *new_centroids;
 int *counts;
 int *cluster_of;
 
-/* Utility function to check CUDA errors */
-#define CHECK_CUDA(call)                                              
-{                                                                     
-    cudaError_t err = call;                                           
-    if (err != cudaSuccess) {                                         
-        fprintf(stderr, "CUDA error at %s:%d - %s\n",                 
-                __FILE__, __LINE__, cudaGetErrorString(err));         
-        exit(EXIT_FAILURE);                                           
-    }                                                                   
+/**************************************************************************
+ **  Utility functions
+ **************************************************************************/
+
+/* function to check CUDA errors */
+#define CHECK_CUDA(call)                                                \
+{                                                                       \
+    cudaError_t err = call;                                             \
+    if (err != cudaSuccess) {                                           \
+        fprintf(stderr, "CUDA error at %s:%d - %s\n",                   \
+                __FILE__, __LINE__, cudaGetErrorString(err));           \
+        exit(EXIT_FAILURE);                                             \
+    }                                                                   \
 }
 
 void *safe_malloc(size_t size) {
@@ -109,6 +123,9 @@ int IDX(int i, int d) {
     return i*n_dims + d;
 }
 
+/******************************************************************
+ **  Do not parallelize, rand() is not thread-safe.              
+ ******************************************************************/
 void init_centroids( void ) {
     int select = n_clusters;
     int remaining = n_points;
@@ -174,18 +191,22 @@ void save_results( FILE *f ) {
 // Computes classification and partial reduction in Shared Memory.
 // Expects data_t to be transposed (D x N) for perfect coalesced reads.
 // --------------------------------------------------------------------------
+
+/*I used __restrict__ qualifiers to indicate that the pointers do not alias, 
+  which can help the compiler optimize memory access patterns.*/
 __global__ void kmeans_classify_and_reduce_kernel(
-    const float* __restrict__ data_t, 
-    const float* __restrict__ centroids,
-    int* __restrict__ cluster_of,
-    float* __restrict__ new_centroids,
-    int* __restrict__ counts,
+    const float* __restrict__ data_t,       /* data[] transposed, read-only */
+    const float* __restrict__ centroids,    /* read-only */
+    int* __restrict__ cluster_of,          
+    float* __restrict__ new_centroids,      
     int N, int K, int D)
 {
     // Shared memory layout:
     // 1. centroids [K * D]
     // 2. local_new_centroids [K * D]
     // 3. local_counts [K]
+    // extern keyword enables Dynamic Shared Memory
+    // (it is linked to shared_mem_size when we call thekernel)
     extern __shared__ float s_mem[];
     float* s_centroids = s_mem;
     float* s_new_centroids = (float*)&s_centroids[K * D];
@@ -258,6 +279,7 @@ int main( int argc, char *argv[] )
 {
     FILE *inputf, *outputf;
 
+    /* Fix the number of iterations */
 #ifdef MAX_ITER_FIXED
     const int fixed_iters = MAX_ITER_FIXED;
 #else    
@@ -286,7 +308,7 @@ int main( int argc, char *argv[] )
         return EXIT_FAILURE;
     }
 
-    // --- CUDA OPTIMIZATION: Transpose Data to enable Coalesced Access ---
+    // --- OPTIMIZATION: Transpose data[] to enable Coalesced Access ---
     float* data_t = (float*)safe_malloc(n_points * n_dims * sizeof(float));
     for(int i = 0; i < n_points; i++) {
         for(int d = 0; d < n_dims; d++) {
@@ -352,7 +374,7 @@ int main( int argc, char *argv[] )
     float shift;
     int iter = 0;
     
-    // Warm-up to exclude CUDA context initialization time from elapsed time
+    // Warm-up to exclude CUDA context initialization time
     cudaDeviceSynchronize();
     const double tstart = hpc_gettime();
 
@@ -361,7 +383,7 @@ int main( int argc, char *argv[] )
         CHECK_CUDA(cudaMemset(d_new_centroids, 0, n_clusters * n_dims * sizeof(float)));
         CHECK_CUDA(cudaMemset(d_counts, 0, n_clusters * sizeof(int)));
 
-        // Launch Kernel
+        // Launch Kernel (third argument is liked to "extern" __shared__ declaration)
         kmeans_classify_and_reduce_kernel<<<grid, block, shared_mem_size>>>(
             d_data_t, d_centroids, d_cluster_of, d_new_centroids, d_counts, n_points, n_clusters, n_dims
         );
@@ -371,7 +393,9 @@ int main( int argc, char *argv[] )
         CHECK_CUDA(cudaMemcpy(new_centroids, d_new_centroids, n_clusters * n_dims * sizeof(float), cudaMemcpyDeviceToHost));
         CHECK_CUDA(cudaMemcpy(counts, d_counts, n_clusters * sizeof(int), cudaMemcpyDeviceToHost));
 
-        // --- CPU Update Phase (Extremely fast for K=8, D=40) ---
+        /*--- CPU Update Phase (Extremely fast for K=8, D=40) ---
+          I tried also a version with another kernel with one block 
+          per cluster but it was not as efficient evn with D = 700*/
         shift = 0.0f;
         for (int j = 0; j < n_clusters; j++) {
             if (counts[j] == 0) {
@@ -389,6 +413,8 @@ int main( int argc, char *argv[] )
         // Copy updated centroids back to Device for next iteration
         CHECK_CUDA(cudaMemcpy(d_centroids, centroids, n_clusters * n_dims * sizeof(float), cudaMemcpyHostToDevice));
 
+        /*I commented the print of shift because input/output are the most 
+          compute-intensive operations, so it would affect the timing.*/
         // printf("Iteration %3d, shift = %f\n", iter, shift);
         iter++;
     } while (iter < fixed_iters);

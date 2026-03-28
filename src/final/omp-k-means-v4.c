@@ -92,15 +92,6 @@ void *safe_malloc(size_t size)
  **  - the use of memset 
  **  - #pragma omp simd to allow vectorization.
  **************************************************************************/
-
-void vzero(float *p) { memset(p, 0, n_dims*sizeof(float)); }
-
-void vadd(float *p1, const float *p2)
-{
-    #pragma omp simd
-    for (int d = 0; d<n_dims; d++) p1[d] += p2[d];
-}
-
 void vmul(float *p, float v)
 {
     #pragma omp simd
@@ -327,7 +318,7 @@ int main(int argc, char *argv[])
 
                 /* --- step (d): accumulate into local_nc --- */
                 float *nc_j = &local_nc[IDX(nearest, 0)];
-                #pragma omp simd
+                #pragma omp simd  /* ex vadd */
                 for (int d = 0; d < n_dims; d++)
                     nc_j[d] += pi[d];
             }
