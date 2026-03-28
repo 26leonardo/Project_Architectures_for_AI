@@ -8,7 +8,7 @@ from pathlib import Path
 parser = argparse.ArgumentParser(description="Generate weak scaling plot from multiple CSV files.")
 parser.add_argument("--inputs", nargs="+", required=True, help="list of input CSV files")
 parser.add_argument("--labels", nargs="+", required=True, help="labels for each CSV")
-parser.add_argument("--outdir", default="plots/weak_scaling", help="output directory")
+parser.add_argument("--outdir", default="img", help="output directory")
 parser.add_argument("--logy", action="store_true", help="log scale on Y axis")
 args = parser.parse_args()
 
@@ -75,7 +75,7 @@ if args.logy:
 # ---------- FORMAT ----------
 plt.xlabel("Number of threads")
 plt.ylabel("Efficiency (T1 / Tp)")
-plt.title("Weak Scaling")
+# plt.title("Weak Scaling")
 plt.legend()
 plt.grid()
 

@@ -6,114 +6,93 @@ import numpy as np
 import matplotlib.pyplot as plt
 from pathlib import Path
 
-parser = argparse.ArgumentParser(description="Generate speedup plot and markdown from results CSV.")
-parser.add_argument("name", help="base name (without extension) for results/<NAME>.csv and plots/<NAME>/")
-parser.add_argument("--input", help="input CSV path (overrides default)", default=None)
-parser.add_argument("--outdir", help="output directory base (overrides default 'plots')", default="plots")
+parser = argparse.ArgumentParser(description="Generate strong scaling plot from multiple CSV files.")
+parser.add_argument("--inputs", nargs="+", required=True, help="list of input CSV files")
+parser.add_argument("--labels", nargs="+", required=True, help="labels for each CSV")
+parser.add_argument("--outdir", default="img", help="output directory")
 args = parser.parse_args()
 
-NAME = args.name
-INPUT_FILE = args.input or f"results/{NAME}.csv"
-OUTPUT_DIR = f"{args.outdir}/{NAME}"
-OUTPUT_PLOT = "speedup.png"
-OUTPUT_MD = "speedup.md"
+if len(args.inputs) != len(args.labels):
+    raise ValueError("Number of inputs must match number of labels")
 
-# ---------- LOAD DATA ----------
-if not Path(INPUT_FILE).exists():
-    raise FileNotFoundError(f"Input file not found: {INPUT_FILE}")
-df = pd.read_csv(INPUT_FILE)
+os.makedirs(args.outdir, exist_ok=True)
 
-# ---------- CHECK ----------
-required_cols = ["experiment", "threads", "N", "K", "D", "iters", "run", "elapsed"]
-for col in required_cols:
-    if col not in df.columns:
-        raise ValueError(f"Missing column: {col}")
+plt.figure()
+colors =[
+    "#A7C7E7", "#6FA8DC",  # blue v1
+    "#DCC6E0", "#B497BD",  # lavender v1 o3 500k . v1 o3 1M
+    "#FBC4D9", "#F497B6",  # pink v2 o3 500k
+    "#FFD6A5", "#FFB347",  # peach v2_OMP 500k v2_OMP  1M
+    "#FFF3B0", "#FFE066",  # yellow
+    "#B8F2E6", "#70D6C1",  # turquoise
+    "#FFADAD", "#FF7F7F",  # red
+    "#E0E0E0", "#B0B0B0",  # gray
+    "#F5E6CC", "#E6CCB2"   # beige
+]
+# ---------- PROCESS EACH DATASET ----------
+for i, (input_file, label) in enumerate(zip(args.inputs, args.labels)):
 
-# ---------- AGGREGATE ----------
-grouped = df.groupby("threads").agg({
-    "elapsed": ["mean", "std"],
-    "N": "first",
-    "K": "first",
-    "D": "first",
-    "iters": "first"
-}).reset_index()
+    if not Path(input_file).exists():
+        raise FileNotFoundError(f"File not found: {input_file}")
 
-# flatten columns
-grouped.columns = ["threads", "mean", "std", "N", "K", "D", "iters"]
-grouped = grouped.sort_values("threads")
+    df = pd.read_csv(input_file)
 
-# ---------- BASELINE ----------
-baseline = grouped[grouped["threads"] == 1]["mean"].values
-if len(baseline) == 0:
-    raise ValueError("Missing threads=1 baseline")
-baseline = baseline[0]
+    required_cols = ["threads", "elapsed"]
+    for col in required_cols:
+        if col not in df.columns:
+            raise ValueError(f"{input_file} missing column: {col}")
 
-# ---------- SPEEDUP ----------
-grouped["speedup_mean"] = baseline / grouped["mean"]
-grouped["speedup_std"] = (grouped["std"] / grouped["mean"]) * grouped["speedup_mean"]
+    # ---------- AGGREGATE ----------
+    grouped = df.groupby("threads").agg({
+        "elapsed": ["mean", "std"]
+    }).reset_index()
 
-# ---------- FORMAT ----------
-def fmt(x):
-    return f"{x:.3f}"
+    grouped.columns = ["threads", "mean", "std"]
+    grouped = grouped.sort_values("threads")
 
-# ---------- PRINT TABLE ----------
-print("\nRESULTS:\n")
-print("threads | N | K | D | iters | mean | std | speedup | speedup_std")
-for _, row in grouped.iterrows():
-    print(
-        f"{int(row['threads'])} | "
-        f"{int(row['N'])} | "
-        f"{int(row['K'])} | "
-        f"{int(row['D'])} | "
-        f"{int(row['iters'])} | "
-        f"{fmt(row['mean'])} | "
-        f"{fmt(row['std'])} | "
-        f"{fmt(row['speedup_mean'])} | "
-        f"{fmt(row['speedup_std'])}"
+    # ---------- BASELINE ----------
+    baseline = grouped[grouped["threads"] == 1]["mean"].values
+    if len(baseline) == 0:
+        raise ValueError(f"{input_file}: missing threads=1 baseline")
+    baseline = baseline[0]
+
+    # ---------- SPEEDUP ----------
+    grouped["speedup_mean"] = baseline / grouped["mean"]
+    grouped["speedup_std"] = (grouped["std"] / grouped["mean"]) * grouped["speedup_mean"]
+
+    # ---------- PLOT ----------
+    plt.errorbar(
+        grouped["threads"],
+        grouped["speedup_mean"],
+        yerr=grouped["speedup_std"],
+        marker='o',
+        capsize=5,
+        label=label,
+        color=colors[i]
     )
 
-# ---------- SAVE MARKDOWN ----------
-os.makedirs(OUTPUT_DIR, exist_ok=True)
-md_path = os.path.join(OUTPUT_DIR, OUTPUT_MD)
-
-with open(md_path, "w") as f_md:
-    f_md.write("# Speedup Results\n\n")
-    f_md.write("| threads | N | K | D | iters | mean | std | speedup | speedup_std |\n")
-    f_md.write("|---------|---|---|---|-------|------|-----|----------|-------------|\n")
-    for _, row in grouped.iterrows():
-        f_md.write(
-            f"| {int(row['threads'])} "
-            f"| {int(row['N'])} "
-            f"| {int(row['K'])} "
-            f"| {int(row['D'])} "
-            f"| {int(row['iters'])} "
-            f"| {fmt(row['mean'])} "
-            f"| {fmt(row['std'])} "
-            f"| {fmt(row['speedup_mean'])} "
-            f"| {fmt(row['speedup_std'])} |\n"
-        )
-
-print(f"\nMarkdown saved to {md_path}")
-
-# ---------- PLOT ----------
-plt.figure()
-plt.errorbar(
-    grouped["threads"],
-    grouped["speedup_mean"],
-    yerr=grouped["speedup_std"],
-    marker='o',
-    capsize=5
-)
-
+# ---------- IDEAL LINE ----------
+# usa l'ultimo dataset per recuperare i thread (assume siano uguali)
 threads = grouped["threads"]
-plt.plot(threads, threads, linestyle="--", label="Ideal speedup")
+plt.plot(threads, threads, linestyle="--", label="Ideal")
 
+# ---------- FORMAT ----------
 plt.xlabel("Number of threads")
 plt.ylabel("Speedup")
-plt.title("OpenMP K-Means Speedup")
 plt.legend()
 plt.grid()
 
-plot_path = os.path.join(OUTPUT_DIR, OUTPUT_PLOT)
+plot_path = os.path.join(args.outdir, "strong_scaling_1.png")
 plt.savefig(plot_path, dpi=300)
+print(f"\n=== {label} ===")
+print(f"{'threads':>8} | {'mean':>10} | {'std':>10} ")
+print("-"*60)
+
+for _, row in grouped.iterrows():
+    print(
+        f"{int(row['threads']):8d} | "
+        f"{row['mean']:10.6f} | "
+        f"{row['std']:10.6f} | "
+    )
+
 print(f"Plot saved to {plot_path}")

@@ -9,7 +9,7 @@ from pathlib import Path
 parser = argparse.ArgumentParser(description="Throughput analysis from multiple CSV files.")
 parser.add_argument("--inputs", nargs="+", required=True, help="list of input CSV files")
 parser.add_argument("--labels", nargs="+", required=True, help="labels for each CSV")
-parser.add_argument("--outdir", default="plots/throughput", help="output directory")
+parser.add_argument("--outdir", default="img", help="output directory")
 parser.add_argument("--logy", action="store_true", help="log scale on Y axis")
 args = parser.parse_args()
 
@@ -24,8 +24,21 @@ plt.figure()
 def compute_work(row):
     return row["N"] * row["K"] * row["D"] * row["iters"]
 
+pastel_colors = ["#DCC6E0", "#FF7F7F","#FBC4D9",
+    "#A7C7E7", "#6FA8DC",  # blue
+    "#B7E4C7", "#76C893",  # green
+    "#FBC4D9", "#F497B6",  # pink
+    "#DCC6E0", "#B497BD",  # lavender
+    "#FFD6A5", "#FFB347",  # peach
+    "#FFF3B0", "#FFE066",  # yellow
+    "#B8F2E6", "#70D6C1",  # turquoise
+    "#FFADAD", "#FF7F7F",  # red
+    "#E0E0E0", "#B0B0B0",  # gray
+    "#F5E6CC", "#E6CCB2"   # beige
+]
+
 # ---------- PROCESS EACH DATASET ----------
-for input_file, label in zip(args.inputs, args.labels):
+for i, (input_file, label) in enumerate(zip(args.inputs, args.labels)):
 
     if not Path(input_file).exists():
         raise FileNotFoundError(f"File not found: {input_file}")
@@ -51,6 +64,12 @@ for input_file, label in zip(args.inputs, args.labels):
     # ---------- THROUGHPUT ----------
     grouped["throughput_mean"] = grouped["work"] / grouped["time_mean"]
     grouped["throughput_std"] = (grouped["time_std"] / grouped["time_mean"]) * grouped["throughput_mean"]
+
+
+    scale = 1e6
+    grouped["throughput_mean"] /= scale
+    grouped["throughput_std"] /= scale
+    grouped["N"] /= scale
 
     # ---------- PRINT ----------
     print(f"\n=== {label} ===")
@@ -78,7 +97,8 @@ for input_file, label in zip(args.inputs, args.labels):
         yerr=grouped["throughput_std"],
         marker='o',
         capsize=5,
-        label=label
+        label=label,
+        color=pastel_colors[i]
     )
 
 # ---------- SCALE ----------
@@ -86,9 +106,11 @@ if args.logy:
     plt.yscale("log")
 
 # ---------- FORMAT ----------
-plt.xlabel("N")
-plt.ylabel("Throughput (work / time)")
-plt.title("Throughput Scaling")
+plt.xlabel("N (×10⁶)")
+plt.ylabel("Throughput (×10⁶ ops/s)", labelpad=1)
+plt.ylim(bottom=0)
+# plt.title("Throughput (axes SCALED BY 1M)")
+
 plt.legend()
 plt.grid()
 

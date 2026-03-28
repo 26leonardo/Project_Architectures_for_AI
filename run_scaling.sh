@@ -36,6 +36,7 @@ BINARY_OMP_O3="./omp-k-means-o3"
 BINARY_OMP_O3_V4="./omp-k-means-o3-v4"
 BINARY_CUDA="./cuda-k-means"
 BINARY_CUDA_V2="./cuda-k-means-v2"
+BINARY_CUDA_V2_O3="./cuda-k-means-v2-o3"
 BINARY_CUDA_V3="./cuda-k-means-v3"
 BINARY_CUDA_V4="./cuda-k-means-v4"
 INPUTGEN="./inputgen"
@@ -258,7 +259,7 @@ gen_input() {
 #                 "v4_bind") BINARY="$BINARY_OMP_V4" ;;
 #                 *) echo "Invalid version: $version"; exit 1 ;;
 #             esac
-#             T=$( run_timed_bind "$BINARY" "$THREADS" "$K" "$WS_INPUT" "$OUT" )
+#             T=$( "$BINARY" "$THREADS" "$K" "$WS_INPUT" "$OUT" )
 #             echo "weak_omp,$THREADS,$WS_N,$K,$D,$MAXITER,$RUN,$T" >> "$WS_CSV"
 #             rm -f "$OUT"
 #         done
@@ -354,20 +355,21 @@ gen_input() {
 
 # VS cuda v2 40
 
-for version in "omp_v4_o3" "omp_v4"; do
+for version in "v2"; do
     echo "  Version: $version"
     CUDA_CSV="$RESULTS_DIR/cuda_vs_omp/${version}.csv"
     echo "experiment,N,K,D,iters,run,elapsed" > "$CUDA_CSV"
     case "$version" in
         "v1") BINARY="$BINARY_CUDA" ;;
         "v2") BINARY="$BINARY_CUDA_V2" ;;
+        "v2_o3") BINARY="$BINARY_CUDA_V2_O3" ;;
         "v3") BINARY="$BINARY_CUDA_V3" ;;
         "v4") BINARY="$BINARY_CUDA_V4" ;;
         "omp_v4") BINARY="$BINARY_OMP_V4" ;;
         "omp_v4_o3") BINARY="$BINARY_OMP_O3_V4" ;;
         *) echo "Invalid version: $version"; exit 1 ;;
     esac
-    for CUDA_N in 500000 1000000 2000000 4000000 8000000; do
+    for CUDA_N in 5000000 6000000 7000000 8000000; do
         CUDA_PPC=$(( CUDA_N / K ))
         CUDA_INPUT="$DATA_DIR/cuda_N${CUDA_N}_D${D}_K${K}.txt"
         gen_input "$CUDA_PPC" "$D" "$K" "$CUDA_INPUT"
@@ -375,7 +377,8 @@ for version in "omp_v4_o3" "omp_v4"; do
         echo "  N=$CUDA_N"
         for RUN in $(seq 1 $NRUNS); do
             OUT="$DATA_DIR/tmp_cuda.out"
-            T=$( run_timed "$BINARY" "16" "$K" "$CUDA_INPUT" "$OUT")
+            T=$( "$BINARY" "$K" "$CUDA_INPUT" "$OUT" 2>/dev/null \
+                | grep "Elapsed time" | awk '{print $3}' )
             echo "cuda_${version},$CUDA_N,$K,$D,$MAXITER,$RUN,$T" >> "$CUDA_CSV"
             rm -f "$OUT"
         done

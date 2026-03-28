@@ -198,7 +198,8 @@ __global__ void kmeans_classify_and_reduce_kernel(
     const float* __restrict__ data_t,       /* data[] transposed, read-only */
     const float* __restrict__ centroids,    /* read-only */
     int* __restrict__ cluster_of,          
-    float* __restrict__ new_centroids,      
+    float* __restrict__ new_centroids,
+    int* __restrict__ counts,      
     int N, int K, int D)
 {
     // Shared memory layout:
