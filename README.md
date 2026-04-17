@@ -8,8 +8,9 @@
 | File | Description |
 |---|---|
 | `report.pdf` | Report of the implementation/performance |
-| `src/omp-k-means.c` | OpenMP parallelization |
-| `src/cuda-k-means.cu` | CUDA parallelization |
+| `src/k-means.c` | Base K-Means alg |
+| `src/final/omp-k-means.c` | OpenMP parallelization |
+| `src/final/cuda-k-means.cu` | CUDA parallelization |
 | `utils/inputgen.c` | Synthetic input generator |
 | `utils/hpc.h` | Timing utilities |
 
