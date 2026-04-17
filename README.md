@@ -1,11 +1,13 @@
-# K-Means Clustering — OpenMP & CUDA
+# K-Means Clustering ( OpenMP & CUDA )
 
-Parallel implementations of Lloyd's K-Means clustering algorithm.
+Develop of the parallel implementations of Lloyd's K-Means clustering algorithm using CUDA and OpenMP, with relative study of the performance and bottolneck given the architecture and code.
+
 
 ## Files
 
 | File | Description |
 |---|---|
+| `report.pdf` | Report of the implementation/performance |
 | `src/omp-k-means.c` | OpenMP parallelization |
 | `src/cuda-k-means.cu` | CUDA parallelization |
 | `utils/inputgen.c` | Synthetic input generator |
