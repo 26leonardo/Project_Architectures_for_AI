@@ -1,6 +1,6 @@
-# K-Means Clustering ( OpenMP & CUDA )
+# Optimization of K-Means Clustering
 
-Develop of the parallel implementations of Lloyd's K-Means clustering algorithm using CUDA and OpenMP, with relative study of the performance and bottolneck given the architecture and code.
+*Develop* of the **parallel implementations** of Lloyd's K-Means clustering algorithm using **CUDA** and **OpenMP**, with relative *study of the performance and bottolneck* given the architecture and code.
 
 
 ## Files
